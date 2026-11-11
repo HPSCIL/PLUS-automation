@@ -272,7 +272,7 @@ def main():
                         help="土地利用数据源:clcd(30m 年度,默认)/ worldcover"
                              "(ESA 10m,仅 2020/2021 两期)")
     parser.add_argument("--lulc-res", type=int, default=30, choices=[10, 30],
-                        help="土地利用图精度:30m(默认)/ 10m(仅 WorldCover,"
+                        help="土地利用图分辨率:30m(默认)/ 10m(仅 WorldCover,"
                              "同区域像元数 ≈ 9 倍,建模慢数倍,适合小区域)")
     parser.add_argument("--drivers-dir", default=None,
                         help="用户自供驱动因子文件夹(跳过自动下载;df_*.tif 命名,"
@@ -312,11 +312,11 @@ def main():
               "需要更早年份请改用 --lulc-source clcd")
         sys.exit(1)
     if args.lulc_res == 10 and args.lulc_source != "worldcover":
-        print("❌ 10m 精度只有 ESA WorldCover 提供(仅 2020/2021);"
+        print("❌ 10m 分辨率只有 ESA WorldCover 提供(仅 2020/2021);"
               "请用 --lulc-source worldcover --lulc-res 10")
         sys.exit(1)
     if args.lulc_res == 10:
-        print("⚠️ 10m 精度:同区域像元数 ≈ 30m 的 9 倍,CARS 耗时数倍,仅建议小区域使用")
+        print("⚠️ 10m 分辨率:同区域像元数 ≈ 30m 的 9 倍,CARS 耗时数倍,仅建议小区域使用")
     # 数据源降级说明(① 下载时可能被赋值:CLCD 失败 → WorldCover 顶替),重分类说明读取后合并
     downgrade_note = ""
 

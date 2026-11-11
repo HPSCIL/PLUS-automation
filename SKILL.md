@@ -20,7 +20,7 @@ description: PLUS 土地利用模拟一站式全流程:一句话从数据下载�
 
 ```
 第 1 轮 · 数据源与建模参数
-  1. 土地利用图精度:30米(推荐)/ 10米 / 自己的数据(用户提供多年份土地利用 tif)
+  1. 土地利用图分辨率:30米(推荐)/ 10米 / 自己的数据(用户提供多年份土地利用 tif)
      · **30米 = 两个数据源,自动优先级**:主 = CLCD 官方 30m 逐年(1990-2022);CLCD 连接失败且年份恰为 2020/2021 时,自动降级用 ESA WorldCover 10m 重采样 30m 顶替(降级会醒目提示并写进报告)
      · **10米 = 一个数据源**:ESA WorldCover 原生 10m(仅 2020/2021 两期;同区域像元数 ≈ 30m 的 9 倍,建模慢数倍,适合小区域)
      · 选"自己的数据"时,紧接再弹一个输入框,让用户填文件夹路径
@@ -111,7 +111,7 @@ python scripts/run_full.py --region 济南市 --years 2000,2010,2020 --predict 2
 
 # WorldCover 30m(显式指定;或 30m 渠道 CLCD 失败时自动降级到此)
 python scripts/run_full.py --region 鄂州市 --years 2020,2021 --predict 2025 --lulc-source worldcover
-# 10m 精度(WorldCover 原生;仅 2020/2021,小区域)
+# 10m 分辨率(WorldCover 原生;仅 2020/2021,小区域)
 python scripts/run_full.py --region 鄂州市 --years 2020,2021 --predict 2025 --lulc-source worldcover --lulc-res 10
 
 # 用户自供驱动因子(跳过自动下载;df_*.tif 命名即可,网格不一致自动重采样对齐)
