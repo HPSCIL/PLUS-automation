@@ -1,0 +1,12 @@
+# 引擎(runtime/)经作者授权随 skill 分发,不再排除(2026-11-10 导师=PLUS 作者梁迅确认)
+scripts/ftp_config.json
+*.pyc
+__pycache__/
+scripts/cache/
+runtime/plus-backend/*.tmp
+runtime/plus-backend/output/
+runtime/plus-backend/logs/
+runtime/plus-backend/TrainData*.csv
+runtime/plus-backend/Contribution*.csv
+runtime/plus-backend/imageminmax.txt
+runtime/plus-backend/accuracy_record_rf.txt

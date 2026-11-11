@@ -1,0 +1,4 @@
+{
+  "_说明": "plus-automation 引擎配置(可选覆盖)。解析顺序:环境变量 PLUS_BACKEND > 本文件 plus_backend > skill 内置 runtime\plus-backend > 内置默认路径。留空即用内置引擎;换引擎版本时填路径覆盖。",
+  "plus_backend": ""
+}
