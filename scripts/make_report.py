@@ -9,7 +9,7 @@
 3. 目标年以"连续预测序列的末年份"为准(--predict 2030 --sequence 5,2 → 目标 2040),
    不再把主模拟年当成任务目标年
 4. 可独立运行:不重跑建模也能重生报告
-   `python scripts/make_report.py --data-dir D:/plus_skill_GIS_data/371700 --project project_full_2030.json`
+   `python scripts/make_report.py --data-dir ~/plus_skill_GIS_data/<研究区> --project project_full_2030.json`
 
 输入(缺哪个就跳过哪节,不报错):
   项目配置 project_full_*.json / 建模产物 report.json / 面积统计.csv / 各子报告 md / timing.json

@@ -78,7 +78,7 @@ description: PLUS 土地利用模拟一站式全流程:一句话从数据下载�
        文件命名 df_*.tif(如 df_gdp.tif);**网格/投影不一致没关系,脚本会自动重采样对齐到土地利用图网格**(与下载渠道同款处理),用户只需保证因子本身是真实数据
      · 脚本会体检(至少 1 个因子、可读、有效值非全0),不过即报错停止;通过后复制进任务目录,原件不动
      · 全 0/常数因子会被拦下(导师写死:禁止合成占位因子,见 FAQ F6)
-  10. 输出根目录:D:\plus_skill_GIS_data(默认)/ 自定义
+  10. 输出根目录:用户主目录下 plus_skill_GIS_data(默认)/ 自定义
   11. 重分类映射:自动(推荐,0 像元类自动归并)/ 自定义 JSON
 ```
 
@@ -118,10 +118,10 @@ python scripts/run_full.py --region 鄂州市 --years 2020,2021 --predict 2025 -
 python scripts/run_full.py --region 鄂州市 --years 2010,2015,2020 --predict 2030 --drivers-dir D:\my_factors
 
 # 只重生成唯一汇总报告(不重跑建模,复用已有产物)
-python scripts/make_report.py --data-dir D:\plus_skill_GIS_data\371700 --project project_full_2030.json
+python scripts/make_report.py --data-dir ~/plus_skill_GIS_data/371700 --project project_full_2030.json
 ```
 
-- 解释器:任意 Python 3.10~3.13(换机见下);本机开发用 d:\plus_skill\.venv\Scripts\python.exe
+- 解释器:任意 Python 3.10~3.13(换机见下)
 - **唯一报告**:`run_full.py` 只产出一份 `<输出目录>/汇总报告.md`;分步 md(下载/因子/重分类/建模)归档在 `logs/子报告/`。`make_report.py` 可随时重生这份报告,不必重跑建模(读 `report.json` + `面积统计.csv` + `timing.json`,缺哪个跳过哪节)
 - **连续预测(--sequence)要求**:仅预测模式;需求方法用 linear(任意年),markov 只支持整数周期;每期需求各自算,CARS 链式按时间升序(末年 → 中间期… → 目标年);产物 = 每期一张模拟图 + 一张多期并排对比图 + 目标年单幅图(`simulation_<目标年>.jpg`)。**`--sequence N` = 间隔年数,中间期排到目标年为止,目标年总是最后一期**(例:2020→2030 间隔 5 → 2025、2030;间隔 3 → 2023、2026、2029、2030;见 FAQ.md F3)
 - **回测选择(--backtest)**:`train`=真实面积、从首年出发(推荐口径,需求取真实验证年面积);`predict`=预测面积、从首年出发(论文主数字,需三期);`real`=真实面积、从中间年出发(实验参数,弹窗不再出现)
@@ -139,7 +139,7 @@ python scripts/make_report.py --data-dir D:\plus_skill_GIS_data\371700 --project
 
 1. **Python**:3.10~3.13(实测 3.11.9 / 3.13.14)。建 venv 后 `pip install -r requirements.txt`(rasterio/numpy/scipy/shapely/requests/matplotlib/pillow,OSM pbf 渠道另需 osmium)。**国内装依赖先换源**,否则 pypi 官方源 60~70 kB/s:`pip install -i https://mirrors.aliyun.com/pypi/simple/ -r requirements.txt`。
 2. **PLUS 引擎**:**已随包内置**(`runtime\plus-backend\`,PLUS 作者梁迅教授授权分发),换机零配置;`python scripts/setup.py --from-backend <已有引擎目录>` 仍可从任意引擎目录重建并生成 9 个 bat 启动器。引擎路径解析顺序 = 环境变量 `PLUS_BACKEND` > `scripts/config.json` > 内置默认。
-3. **数据根目录**:`--output`(根)或 `--data-dir`(直接指定某研究区目录);默认 `D:\plus_skill_GIS_data`。
+3. **数据根目录**:`--output`(根)或 `--data-dir`(直接指定某研究区目录);默认 = 用户主目录下 `plus_skill_GIS_data`(跨机通用)。
 4. **仅 Windows**:引擎是 Windows 二进制,且路径不能含中文/空格(脚本会自检)。
 5. **凭据不在包内**:NCDC FTP 账号存 `~/.plus-full/ftp_config.json`(或 `PLUS_FTP_CONFIG` 指定);缺失时下载步直接报错,不会静默降级。
 

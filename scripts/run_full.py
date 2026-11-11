@@ -35,7 +35,7 @@ force_utf8()
 
 PY = sys.executable
 SCRIPTS = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_ROOT = r"D:\plus_skill_GIS_data"
+DEFAULT_ROOT = os.path.join(os.path.expanduser("~"), "plus_skill_GIS_data")  # 默认输出根目录 = 用户主目录下(跨机通用)
 
 
 def run(cmd, timeout=14400):

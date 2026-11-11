@@ -10,7 +10,7 @@ import json
 import subprocess
 
 # 内置默认引擎目录:skill 自带的运行时(相对路径,换机可移植;setup.py 会把引擎复制到这里)
-# 阶段 2"可移植改造":不再硬编码 D:\plus_skill,引擎装到 <skill>/plus-runtime/plus-backend
+# 阶段 2"可移植改造":不再硬编码开发机路径,引擎装到 <skill>/plus-runtime/plus-backend
 DEFAULT_PLUS_BACKEND = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "plus-runtime", "plus-backend")

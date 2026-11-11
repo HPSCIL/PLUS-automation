@@ -95,7 +95,7 @@ PROVINCE_PINYIN = {
     "澳门特别行政区": "macau",
 }
 
-DEFAULT_OUTPUT_ROOT = r"D:\plus_skill_GIS_data"
+DEFAULT_OUTPUT_ROOT = os.path.join(os.path.expanduser("~"), "plus_skill_GIS_data")  # 默认输出根目录 = 用户主目录下(跨机通用)
 
 # 各因子的输出文件名 + 说明(报告用)
 FACTOR_INFO = {

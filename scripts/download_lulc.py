@@ -56,7 +56,7 @@ WORLDCOVER_TILE_URL = ("https://esa-worldcover.s3.eu-central-1.amazonaws.com/"
                        "{ver}/{year}/map/ESA_WorldCover_10m_{year}_{ver}_"
                        "N{lat:02d}E{lon:03d}_Map.tif")
 
-DEFAULT_OUTPUT_ROOT = r"D:\plus_skill_GIS_data"
+DEFAULT_OUTPUT_ROOT = os.path.join(os.path.expanduser("~"), "plus_skill_GIS_data")  # 默认输出根目录 = 用户主目录下(跨机通用)
 
 
 # ---- NCDC FTP 渠道(CLCD 国内官方镜像,实测可达;账号在 ftp_config.json)----
