@@ -762,7 +762,10 @@ def main():
         run([PY, script("run_pipeline.py"), "--project", proj_path], timeout=43200)
         mark_done("5", cfg_key)
     tick("⑤ 建模(expansion→LEAS→需求→CARS→精度)", t5,
-         inputs=f"{n_cls} 类 × {len(years)} 期 + {len(os.listdir(drivers_dir))} 个因子",
+         # 因子数只数 drivers 根目录的 df_*.tif,不含 _raw 原始下载件
+         # (2026-11-13 推文校审发现:旧写法数整个目录,把 _raw 里 2 个 tif 也算成"19 个因子")
+         inputs=f"{n_cls} 类 × {len(years)} 期 + "
+                f"{len([f for f in os.listdir(drivers_dir) if f.startswith('df_')])} 个因子",
          outputs=os.path.join(data_dir, out_name))
     sim = os.path.join(data_dir, out_name, f"simulation_bt_{args.predict}Simulation_1.tif")
 
