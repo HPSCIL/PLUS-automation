@@ -56,6 +56,14 @@ WORLDCOVER_TILE_URL = ("https://esa-worldcover.s3.eu-central-1.amazonaws.com/"
                        "{ver}/{year}/map/ESA_WorldCover_10m_{year}_{ver}_"
                        "N{lat:02d}E{lon:03d}_Map.tif")
 
+# 【参数】Esri Sentinel-2 10m 年度土地覆盖(免注册!服务端按 bbox 裁剪,不下大文件)
+# 官方:Living Atlas 条目 cfcb7609de5f478eb7666240902d4d3d(esri_imagery),
+# 服务 ic.imagery1.arcgis.com;2017-2025 逐年;9 类(1水体/2树木/4淹水植被/5作物/
+# 7建成/8裸地/9冰雪/10云/11牧场,官方条目描述 2026-11-11 核实);CC BY 4.0。
+ESRI_LANDCOVER_URL = ("https://ic.imagery1.arcgis.com/arcgis/rest/services/"
+                      "Sentinel2_10m_LandCover/ImageServer/exportImage")
+ESRI_YEARS = (2017, 2025)   # 可用年份区间(含)
+
 DEFAULT_OUTPUT_ROOT = os.path.join(os.path.expanduser("~"), "plus_skill_GIS_data")  # 默认输出根目录 = 用户主目录下(跨机通用)
 
 
@@ -664,6 +672,88 @@ def worldcover_download(year, geojson, out_dir, threads=4, dry_run=False,
     return (h, w, str(crs)), (dst_transform, dst_w, dst_h)
 
 
+def esri_download(year, geojson, out_dir, ref_grid=None, res=30):
+    """Esri Land Cover 免注册下载:exportImage 按研究区 bbox 服务端裁剪(10m)。
+
+    大区域自动分块(服务单次 4000×4000 像元 ≈ 40km 上限),逐块下载后
+    重投影聚合到 Albers 目标网格(众数,块间不重叠、非零覆盖),按边界
+    裁切掩膜输出 <out_dir>/lulc_<year>.tif。
+    res=30:10m 聚合 30m(推荐);res=10:保持 10m 原生(小区域)。
+    ref_grid = 第一年网格,多年份对齐用。返回 ((h, w, crs 文本), ref_grid)。
+    """
+    import math
+    from rasterio.crs import CRS
+    from rasterio.warp import reproject, Resampling, transform_bounds
+    if not (ESRI_YEARS[0] <= year <= ESRI_YEARS[1]):
+        raise RuntimeError(f"Esri Land Cover 只有 {ESRI_YEARS[0]}-{ESRI_YEARS[1]} 逐年,不支持 {year}")
+    minx, miny, maxx, maxy = bounds_wgs84_geom(geojson)
+    print(f"  Esri Land Cover {year} 年:免注册,按研究区范围服务端裁剪({res}m)")
+
+    # 目标网格:Albers 30m(或 10m)+ 每边 100 像元余量(与 WorldCover 同款);
+    # 第一年计算,后续年份 ref_grid 强制对齐
+    dst_crs = CRS.from_dict({"proj": "aea", "lat_1": 25, "lat_2": 47, "lat_0": 0,
+                             "lon_0": 105, "x_0": 0, "y_0": 0, "datum": "WGS84", "units": "m"})
+    if ref_grid is None:
+        bx0, by0, bx1, by1 = transform_bounds("EPSG:4326", dst_crs, minx, miny, maxx, maxy)
+        pad = 100 * res
+        dst_transform = rasterio.Affine(res, 0, bx0 - pad, 0, -res, by1 + pad)
+        dst_w = int(math.ceil((bx1 - bx0 + 2 * pad) / res))
+        dst_h = int(math.ceil((by1 - by0 + 2 * pad) / res))
+    else:
+        dst_transform, dst_w, dst_h = ref_grid
+
+    # 分块:每块 ≤4000×4000 像元(服务单次导出上限),10m ≈ 0.0000898°/像元
+    DEG = 10.0 / 111320.0
+    block_deg = 4000 * DEG
+    full = np.zeros((dst_h, dst_w), dtype="uint8")
+    mosaic = json.dumps({"where": f"StartDate=timestamp '{year}-01-01 00:00:00'"})
+    lat = miny
+    nblk = 0
+    raw_dir = os.path.join(out_dir, "esri_raw")
+    os.makedirs(raw_dir, exist_ok=True)
+    while lat < maxy:
+        lon = minx
+        while lon < maxx:
+            bx0b, by0b, bx1b, by1b = lon, lat, min(maxx, lon + block_deg), min(maxy, lat + block_deg)
+            nx = max(2, int((bx1b - bx0b) / DEG))
+            ny = max(2, int((by1b - by0b) / DEG))
+            url = (f"{ESRI_LANDCOVER_URL}?bbox={bx0b},{by0b},{bx1b},{by1b}"
+                   f"&bboxSR=4326&imageSR=4326&size={nx},{ny}&format=tiff&f=image"
+                   f"&mosaicRule={requests.utils.quote(mosaic)}")
+            blk = os.path.join(raw_dir, f"esri_{year}_{nblk:03d}.tif")
+            if not (os.path.exists(blk) and os.path.getsize(blk) > 1000):
+                r = requests.get(url, timeout=600)
+                r.raise_for_status()
+                with open(blk, "wb") as f:
+                    f.write(r.content)
+            with rasterio.open(blk) as s:
+                # 逐块聚合到 30m 目标网格;块间不重叠,非 0 才覆盖
+                # (rasterio.reproject 对同一数组反复调用会全量覆盖写,2026-11-10 实测教训)
+                part = np.zeros((dst_h, dst_w), dtype="uint8")
+                reproject(rasterio.band(s, 1), part,
+                          src_transform=s.transform, src_crs=s.crs,
+                          dst_transform=dst_transform, dst_crs=dst_crs,
+                          resampling=Resampling.mode)
+            full = np.where(part != 0, part, full)
+            nblk += 1
+            lon += block_deg
+        lat += block_deg
+    print(f"  ✅ 分块下载 + 聚合完成({nblk} 块)")
+
+    # 写全幅中间件 → 按边界裁切掩膜(与 WorldCover/CLCD 同款统一网格口径)
+    full_tif = os.path.join(raw_dir, f"esri_{year}_aea{res}_full.tif")
+    with rasterio.open(full_tif, "w", driver="GTiff", height=dst_h, width=dst_w,
+                       count=1, dtype="uint8", crs=dst_crs,
+                       transform=dst_transform, compress="deflate") as dst:
+        dst.write(full, 1)
+    out_path = os.path.join(out_dir, f"lulc_{year}.tif")
+    (h, w), crs = clip_to_boundary(full_tif, geojson, out_path,
+                                   ref_grid=(dst_transform, dst_w, dst_h))
+    os.remove(full_tif)   # 中间件即用即删
+    print(f"  ✅ Esri {year} 裁切完成: {out_path} ({h}×{w}, {res}m Albers)")
+    return (h, w, str(crs)), (dst_transform, dst_w, dst_h)
+
+
 def clip_to_boundary(tif_path, geojson, out_path, ref_grid=None):
     """按边界裁切(保持原始投影/分辨率,不重采样)
 
@@ -744,10 +834,14 @@ def bounds_wgs84_geom(geojson):
 
 
 def write_report(out_dir, region, years, infos, source="ncdc-ftp"):
-    src_desc = ("ESA WorldCover(10m 全球产品,v100=2020 / v200=2021,已重采样 30m;"
-                "官方 esa-worldcover.org,许可 CC BY 4.0)"
-                if source == "worldcover"
-                else "CLCD(30m,年度,武汉大学/官方发布)")
+    if source == "worldcover":
+        src_desc = ("ESA WorldCover(10m 全球产品,v100=2020 / v200=2021,已重采样 30m;"
+                    "官方 esa-worldcover.org,许可 CC BY 4.0)")
+    elif source == "esri":
+        src_desc = ("Esri Sentinel-2 10m 年度土地覆盖(2017-2025 逐年,免注册;"
+                    "Impact Observatory 模型,官方 Living Atlas,CC BY 4.0)")
+    else:
+        src_desc = "CLCD(30m,年度,武汉大学/官方发布)"
     lines = [f"# 土地利用数据下载报告", "",
              f"- 研究区: {region}", f"- 数据源: {src_desc}",
              f"- 年份: {', '.join(str(y) for y in years)}", "",
@@ -786,11 +880,12 @@ def main():
     parser.add_argument("--manual-files", default=None,
                         help="手动模式:逗号分隔 文件路径:年份,如 D:\\a.tif:2010,D:\\b.tif:2020")
     parser.add_argument("--source", default="ncdc-ftp",
-                        choices=["ncdc-ftp", "http", "worldcover"],
+                        choices=["ncdc-ftp", "http", "worldcover", "esri"],
                         help="下载渠道:默认 ncdc-ftp(CLCD 国内官方镜像,账号在 ftp_config.json);"
-                             "worldcover=ESA WorldCover 10m(仅 2020/2021)")
+                             "worldcover=ESA WorldCover 10m(仅 2020/2021);"
+                             "esri=Esri Land Cover 10m(2017-2025 逐年,免注册,推荐)")
     parser.add_argument("--res", type=int, default=30, choices=[30, 10],
-                        help="WorldCover 输出分辨率:30(重采样 30m,默认)/ 10(保持 10m 原生)")
+                        help="WorldCover/Esri 输出分辨率:30(重采样 30m,默认)/ 10(保持 10m 原生)")
     parser.add_argument("--threads", type=int, default=4,
                         help="FTP 并行分段数,默认 4(1=单线程;服务器限速时多线程能快数倍)")
     parser.add_argument("--dry-run", action="store_true", help="只解析边界/校验渠道,不下载")
@@ -804,6 +899,11 @@ def main():
         bad = [y for y in years if y not in (2020, 2021)]
         if bad:
             print(f"❌ WorldCover 只有 2020(v100)/2021(v200)两期,不支持年份 {bad}")
+            sys.exit(1)
+    if args.source == "esri":
+        bad = [y for y in years if not (ESRI_YEARS[0] <= y <= ESRI_YEARS[1])]
+        if bad:
+            print(f"❌ Esri Land Cover 只有 {ESRI_YEARS[0]}-{ESRI_YEARS[1]} 逐年,不支持年份 {bad}")
             sys.exit(1)
 
     # 输出文件夹名必须纯 ASCII(PLUS 下游对路径编码敏感):中文名改用 adcode
@@ -844,9 +944,10 @@ def main():
 
     # 全国网格参照:分省包省图与全国图存在亚像元错位(2026-11-05 审计实测
     # 武汉 2005 省图与全国图差 ~2-6m),裁切统一按全国网格快照,保证各期逐像素对齐。
-    # 仅 CLCD 渠道使用(WorldCover 有自己的 30m 重投影网格,见 worldcover_download)
+    # 仅 CLCD 渠道使用(WorldCover/Esri 有自己的 30m 重投影网格)
     ref_grid = None
-    wc_grid = None   # WorldCover 第一年的 30m 网格,第二年强制对齐用
+    wc_grid = None    # WorldCover 第一年的 30m 网格,第二年强制对齐用
+    esri_grid = None  # Esri 同上
     for f in os.listdir(out_dir) if args.source != "worldcover" else []:
         if f.startswith("CLCD_") and f.endswith("_raw.tif"):
             try:
@@ -891,6 +992,18 @@ def main():
                     infos[y] = info
                 except Exception as e:
                     print(f"  ❌ WorldCover {y} 年失败: {e}")
+                continue
+            if args.source == "esri":
+                # Esri Land Cover(免注册):分块服务端裁剪 → 目标网格(res:30 聚合/10 原生)→ 裁切;
+                # 第二年用第一年网格强制对齐(esri_grid),与 WorldCover 同款机制
+                try:
+                    info, esri_grid = esri_download(
+                        y, geojson, out_dir,
+                        ref_grid=esri_grid if esri_grid is not None else None,
+                        res=args.res)
+                    infos[y] = info
+                except Exception as e:
+                    print(f"  ❌ Esri {y} 年失败: {e}")
                 continue
             if args.source == "ncdc-ftp":
                 # 主渠道:NCDC FTP(国内官方镜像,账号配置一次性)

@@ -523,6 +523,58 @@ def make_sequence_map(tif_year_pairs, output_path, names=None, dpi=150, title=No
     return True
 
 
+def make_landcover_gif(tif_label_pairs, output_path, names=None, width=800):
+    """土地利用演变 GIF(2026-11-13 用户要求成果项):历史+模拟全排,轻量帧+年份标注。
+
+    参数:
+        tif_label_pairs  [(tif_path, 帧标签文本), ...],按时间顺序(如 "2000"、"2020 模拟")
+        output_path     输出 .gif 路径
+        names           "1=耕地,2=森林,..." 或 None(统一配色用)
+        width           帧宽像素(默认 800,轻量)
+    每帧:统一配色渲染 + 右下角黑底白字标注;帧间隔 0.8 秒,循环播放。
+    """
+    import io
+    from PIL import Image
+    if not tif_label_pairs:
+        print("❌ GIF 没有帧可画")
+        return False
+    labels = parse_names(names) if names else None
+    # 全帧并集类别 → 统一色表(同一地类各帧同色)
+    classes = set()
+    for tif, _ in tif_label_pairs:
+        with rasterio.open(tif) as s:
+            d = s.read(1)
+        classes |= {int(c) for c in np.unique(d) if int(c) not in NODATA_VALUES and int(c) >= 1}
+    classes = sorted(classes)
+    if not classes:
+        print("❌ GIF 帧里没有有效地类")
+        return False
+    cmap, norm, color_table = build_color_table(classes, max(classes), labels, {})
+    frames = []
+    for tif, label in tif_label_pairs:
+        with rasterio.open(tif) as s:
+            d = s.read(1)
+            h0, w0 = d.shape
+            h = int(h0 * width / w0)
+        valid = np.ma.masked_where(np.isin(d, NODATA_VALUES), d)
+        fig = plt.figure(figsize=(width / 100.0, h / 100.0), dpi=100)
+        ax = fig.add_axes([0, 0, 1, 1])
+        ax.imshow(valid, cmap=cmap, norm=norm, interpolation="nearest")
+        ax.set_axis_off()
+        ax.text(0.99, 0.01, label, transform=ax.transAxes, ha="right", va="bottom",
+                fontsize=16, color="white",
+                bbox=dict(facecolor="black", alpha=0.6, pad=4))
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=100, bbox_inches="tight", pad_inches=0)
+        plt.close(fig)
+        buf.seek(0)
+        frames.append(Image.open(buf))
+    frames[0].save(output_path, save_all=True, append_images=frames[1:],
+                   duration=800, loop=0)
+    print(f"✅ 土地利用演变 GIF 已保存: {output_path}({len(frames)} 帧)")
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(description="土地利用 tif 出图(图例/比例尺/指北针都在图框内)")
     parser.add_argument("tif_path", help="要出图的 tif 文件路径")

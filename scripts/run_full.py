@@ -9,7 +9,8 @@
     ⑥ FoM 验证 + 汇总报告
 
 用法:
-    python run_full.py --region 鄂州市 --years 2010,2015,2020 --predict 2020   # 回测
+    python run_full.py --region 郑州市 --years 2017,2025 --predict 2025 --lulc-source esri   # 回测(Esri,免注册)
+    python run_full.py --region 鄂州市 --years 2010,2015,2020 --predict 2020   # 回测(CLCD)
     python run_full.py --region 鄂州市 --years 2010,2015,2020 --predict 2030   # 预测
     python run_full.py --region 鄂州市 --years 2010,2015,2020 --predict 2030 --mapping 映射.json
 
@@ -268,9 +269,9 @@ def main():
     parser.add_argument("--threads", type=int, default=4, help="下载线程数")
     parser.add_argument("--data-dir", default=None,
                         help="直接指定已有数据目录(复用缓存,跳过文件夹推导与重复下载)")
-    parser.add_argument("--lulc-source", default="clcd", choices=["clcd", "worldcover"],
-                        help="土地利用数据源:clcd(30m 年度,默认)/ worldcover"
-                             "(ESA 10m,仅 2020/2021 两期)")
+    parser.add_argument("--lulc-source", default="clcd", choices=["clcd", "worldcover", "esri"],
+                        help="土地利用数据源:clcd(30m 年度,需 NCDC 账号)/ worldcover"
+                             "(ESA 10m,仅 2020/2021,免注册)/ esri(Esri 10m,2017-2025 逐年,免注册,推荐)")
     parser.add_argument("--lulc-res", type=int, default=30, choices=[10, 30],
                         help="土地利用图分辨率:30m(默认)/ 10m(仅 WorldCover,"
                              "同区域像元数 ≈ 9 倍,建模慢数倍,适合小区域)")
@@ -311,6 +312,11 @@ def main():
         print("❌ WorldCover 只有 2020(v100)/2021(v200)两期;"
               "需要更早年份请改用 --lulc-source clcd")
         sys.exit(1)
+    if args.lulc_source == "esri" and any(not (2017 <= y <= 2025) for y in years):
+        print("❌ Esri Land Cover 只有 2017-2025 逐年;需要更早年份请改用 --lulc-source clcd")
+        sys.exit(1)
+    if args.lulc_res == 10 and args.lulc_source == "esri":
+        print("⚠️ Esri 10m 原生:同区域像元数 ≈ 30m 的 9 倍,CARS 耗时数倍,仅建议小区域使用")
     if args.lulc_res == 10 and args.lulc_source != "worldcover":
         print("❌ 10m 分辨率只有 ESA WorldCover 提供(仅 2020/2021);"
               "请用 --lulc-source worldcover --lulc-res 10")
@@ -504,6 +510,11 @@ def main():
         sem = {}
         for c in sorted(union):
             name = legend.get(c, f"类别{c}")
+            if name == "背景":
+                # 背景类(0/云等无效像元)不参与建模编码:2026-11-13 郑州实测,
+                # Esri 图中 1 个像元的"云"(10)被编成 7 → 输出编码空洞 → 草地丢成 0
+                # → CARS 0xC0000409 崩溃。背景一律走 0,不进映射。
+                continue
             sem.setdefault(name, c)
         mapping = {name: i + 1 for i, name in enumerate(sem)}
         mapping_path = os.path.join(data_dir, "mapping_auto.json")
@@ -622,6 +633,9 @@ def main():
         # WorldCover 渠道直接标 worldcover,不走 CLCD 报告文件推断(报告里写的是 ESA)
         data_source = "worldcover"
         print("  数据源判定:ESA WorldCover(10m,已重采样 30m)")
+    elif args.lulc_source == "esri":
+        data_source = "esri"
+        print("  数据源判定:Esri Land Cover(10m,2017-2025,已聚合 30m,免注册)")
     else:
         _clcd_ev = [os.path.join(data_dir, p) for p in
                     ("CLCD下载报告.md", "下载报告.md",
@@ -841,6 +855,26 @@ def main():
             else:
                 print(f"  ⚠️ 目标年图生成失败: {(_rf.stdout + _rf.stderr)[-200:]}")
     tick("⑦ 出图", t7, inputs=sim, outputs="; ".join(p for _, p in figs if p))
+
+    # ⑦+++ 土地利用演变 GIF(2026-11-13 用户要求成果项):历史+模拟全排,轻量帧+年份标注
+    gif_frames = []
+    for y in years:
+        p = os.path.join(data_dir, f"lulc_{y}_rc_uc.tif")
+        if os.path.exists(p):
+            gif_frames.append((p, str(y)))
+    for s in seq_sims:
+        _gy = s["year"]
+        _dup = any(_gy == y for y in years)   # 回测场景模拟年=末年,标注区分真实/模拟
+        gif_frames.append((s["sim"], f"{_gy} 模拟" if _dup else str(_gy)))
+    if len(gif_frames) >= 2:
+        gif_path = os.path.join(data_dir, out_name,
+                                f"landuse_evolution_{gif_frames[0][1]}_{gif_frames[-1][1]}.gif")
+        from landuse_map import make_landcover_gif
+        try:
+            make_landcover_gif(gif_frames, gif_path, names=name_str)
+            fig_line += f"; 演变GIF: {gif_path}"
+        except Exception as e:
+            print(f"⚠️ 演变 GIF 生成失败: {e}")
 
     # ⑦++ 面积统计 CSV(逐类 km²):历史各年真实 + 主模拟 + 连续预测各期
     area_csv = None

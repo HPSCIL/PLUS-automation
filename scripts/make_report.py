@@ -165,6 +165,7 @@ def _sec_meta(proj, predict, target, seq, region, backtest, water, mapping, fact
            else "ESA WorldCover 10m 全球土地覆盖(v100/v200,重采样 30m;CC BY 4.0)")
     _src = {"clcd": "CLCD 30m 逐年数据(中科院, Yang & Huang 2021)",
             "worldcover": _wc,
+            "esri": "Esri Sentinel-2 10m 年度土地覆盖(2017-2025 逐年,聚合 30m;CC BY 4.0)",
             "user": "用户自有土地利用数据(各年份 tif 由用户提供)"}
     L.append(f"| 数据源 | {_src.get(_ds, _src['user'])} |")
     L.append(f"| 训练期 | {proj.get('early_year')}–{proj.get('late_year')} |")
@@ -251,7 +252,14 @@ def _sec_matrix(proj):
     rests = proj.get("matrix_restrictions") or []
     L.append("- 基线:官方模板——森林、建设用地不可逆(形成后不再转出),其余类别开放互转")
     if locked:
-        L.append(f"- 水域锁定:{'、'.join(locked)} 只能自转、不转出(前期问答用户选择)")
+        # 2026-11-13 郑州实测:只禁转出会让其他地类按历史概率"灌进"水域(+32%);
+        # 若矩阵里同时禁了"转入水域",文案写"双向锁定"
+        _to_water_banned = any((r.get("to") == w or r.get("to") in locked)
+                               and not r.get("allow", True) for r in rests for w in locked)
+        L.append(f"- 水域处理:{'、'.join(locked)} "
+                 + ("双向锁定(禁止转出,也禁止其他地类转入,面积冻结)"
+                    if _to_water_banned
+                    else "只禁止转出、不禁止转入(其他地类仍可按历史概率转入,面积可能增长)"))
     if rests:
         L.append("- **区域化修改**(相对官方模板的改动,共 %d 条):" % len(rests))
         for r in rests:
@@ -581,7 +589,7 @@ def build_report(data_dir, out_name, proj, predict, region,
     _ds = _data_source(proj, data_dir)
     _head_src = {"clcd": "CLCD 30m ", "worldcover": "ESA WorldCover 10m ",
                  "user": "用户提供的 "}
-    head = (f"以 {_head_src.get(_ds, _head_src['user'])}{early_year}–{late_year} 三期土地利用数据为训练期,"
+    head = (f"以 {_head_src.get(_ds, _head_src['user'])}{early_year}–{late_year} 多期土地利用数据为训练期,"
             f"PLUS 模型(扩张分析 + LEAS 随机森林 + "
             f"{'马尔可夫链' if proj.get('demand') == 'markov' else '线性回归'}需求 + CARS 斑块模拟)")
     if seq:
@@ -598,7 +606,12 @@ def build_report(data_dir, out_name, proj, predict, region,
     else:
         if bt:
             bm = bt[1]["metrics"]
-            L.append(f"> 精度:纯预测无真实图可比;可靠性参照同参数 2020 回测 "
+            # 回测年份动态取(2026-11-13 修:此前写死"2020 回测",Esri 数据源回测年=2025 时会错)
+            import re as _re
+            _m = _re.search(r"bt(\d+)", bt[0] or "")
+            _bt_year = bt[1].get("predict_year") or (int(_m.group(1)) if _m else None)
+            _bt_txt = f"{_bt_year} 年" if _bt_year else ""
+            L.append(f"> 精度:纯预测无真实图可比;可靠性参照同参数 {_bt_txt}回测 "
                      f"Kappa {bm.get('Kappa', 0):.4f} / OA {(bm.get('OA') or 0) * 100:.2f}% / "
                      f"FoM {bm.get('FoM', 0):.4f}(真实面积诊断口径,只代表位置能力)")
         else:
@@ -650,7 +663,12 @@ def main():
     proj = _load_json(proj_path) or {}
     proj.setdefault("data_dir", data_dir)
     out_name = os.path.basename(proj.get("output_dir") or f"model_{proj.get('predict_year')}")
-    region = a.region or proj.get("region") or os.path.basename(data_dir)
+    region = a.region or proj.get("region")
+    if not region:
+        # 回退顺序:_说明 里的研究区名("郑州市 全流程预测…")→ 目录名。
+        # 2026-11-13 郑州实测:重生成报告丢市名(只取目录名 410100)
+        _m = __import__("re").match(r"^(\S+?)\s+全流程", proj.get("_说明") or "")
+        region = _m.group(1) if _m else os.path.basename(data_dir)
     timings = _load_json(a.timing) if a.timing else _load_json(
         os.path.join(data_dir, out_name, "timing.json"))
     predict = int(proj.get("predict_year") or 0)
