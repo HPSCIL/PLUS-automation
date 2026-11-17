@@ -2,7 +2,7 @@
 
 因子清单(核心 8 类、10 个栅格):
 
-    地形(3):dem(30m SRTM,CGIAR 官方镜像)、slope 坡度、aspect 坡向 —— 后两者本地计算
+    地形(3):dem(30m SRTM,CGIAR 国内镜像)、slope 坡度、aspect 坡向 —— 后两者本地计算
     气候(2):tavg 年均温、prec 年降水 —— CHELSA v2.1(1km,1981-2010 平均)
     人口(1):pop 人口密度 —— WorldPop 100m(默认 2020)
     距离(4):dist_highway(高速+铁路)、dist_main(国道+省道)、dist_road(全部道路)、
@@ -106,7 +106,7 @@ FACTOR_INFO = {
     "tavg": ("df_tavg.tif", "年均温(℃)", "NCEP 再分析, 2.5°, 1991-2020 平均"),
     "prec": ("df_prec.tif", "年降水(mm/年)", "CMAP 增强降水, 2.5°, 1991-2020 平均"),
     "pop": ("df_pop.tif", "人口密度(人/像元)", "WorldPop 100m"),
-    # —— 距离类(官方示例同款细分,全部来自 OSM)——
+    # —— 距离类(教程示例同款细分,全部来自 OSM)——
     "dist_motorway": ("df_dist_motorway.tif", "距高速公路(m)", "OSM highway=motorway + 欧氏距离"),
     "dist_trunk": ("df_dist_trunk.tif", "距主干道(m)", "OSM highway=trunk + 欧氏距离"),
     "dist_primary": ("df_dist_primary.tif", "距国道(m)", "OSM highway=primary + 欧氏距离"),
@@ -126,7 +126,7 @@ FACTOR_INFO = {
     "nightlight": ("df_nightlight.tif", "夜间灯光亮度(GDP 代理)", "VIIRS 年合成(EOG Mines)"),
 }
 
-# 默认因子清单 = 官方示例同款 16 项(地形3+气候2+人口1+距离9+土壤1)
+# 默认因子清单 = 教程示例同款 16 项(地形3+气候2+人口1+距离9+土壤1)
 DEFAULT_FACTORS = ("dem,slope,aspect,tavg,prec,pop,"
                    "dist_motorway,dist_trunk,dist_primary,dist_secondary,dist_tertiary,"
                    "dist_railway,dist_hsrail,dist_gov,dist_historic,dist_water,soil")

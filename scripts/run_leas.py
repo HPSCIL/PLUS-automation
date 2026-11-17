@@ -26,7 +26,7 @@ def build_leas_tmp(input_lulc, feature_folder, output_probability,
     (从 GUI 的 LEASparameters.tmp 痕迹里挖出来的):
         采样率 0.01、mTry 16、树 20、线程 1
 
-    标签含义(官方教程 4.3 节):
+    标签含义(教程 4.3 节):
         <Input LULC>           扩张图(上一模块 expansion 的输出)
         <Input Featrue folder> 驱动因子文件夹(注意标签里 Featrue 是引擎原文拼写)
         <Output probability>   输出概率图基础名(引擎会生成 <名字>_band_1..N.tif)

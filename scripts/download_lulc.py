@@ -2,7 +2,7 @@
 
 流程:
     1. 定位研究区:行政区划名(自动取边界+GCJ-02 纠偏)或用户给 GeoJSON 边界
-    2. 下载:CLCD 官方发布源(30m 年度中国全图),流式下载+进度;失败提示手动兜底
+    2. 下载:CLCD 发布源(30m 年度中国全图),流式下载+进度;失败提示手动兜底
     3. 裁切:按边界裁出研究区,输出 lulc_<年份>.tif
     4. 报告:数据源/年份/行列/投影/编码说明
 
@@ -45,11 +45,11 @@ except Exception:
 ADCODE_URL = "https://unpkg.com/china-division/dist/pcas-code.json"
 # 【参数】边界数据源(阿里 DataV,GCJ-02 坐标,需纠偏)
 BOUNDARY_URL = "https://geo.datav.aliyun.com/areas_v3/bound/{adcode}.json"
-# 【参数】CLCD 下载 URL 模板(官方 Zenodo 记录 records/8176941,文件名 *_albert.tif;
+# 【参数】CLCD 下载 URL 模板(Zenodo 记录 records/8176941,文件名 *_albert.tif;
 # 国内直连常超时,默认渠道不可用时用 --url 覆盖或 --manual 手动兜底)
 CLCD_URL_TEMPLATE = "https://zenodo.org/records/8176941/files/CLCD_v01_{year}_albert.tif?download=1"
 
-# 【参数】ESA WorldCover 官方分发(AWS S3 欧区,2026-11-10 实测国内可达,
+# 【参数】ESA WorldCover 分发(AWS S3 欧区,2026-11-10 实测国内可达,
 # 单线程 ~100KB/s,多线程分段并行可提速数倍):3°×3° 分幅 tile,命名 N{lat}E{lon};
 # v100=2020,v200=2021(该产品只有这两年)。许可 CC BY 4.0。
 WORLDCOVER_TILE_URL = ("https://esa-worldcover.s3.eu-central-1.amazonaws.com/"
@@ -57,9 +57,9 @@ WORLDCOVER_TILE_URL = ("https://esa-worldcover.s3.eu-central-1.amazonaws.com/"
                        "N{lat:02d}E{lon:03d}_Map.tif")
 
 # 【参数】Esri Sentinel-2 10m 年度土地覆盖(免注册!服务端按 bbox 裁剪,不下大文件)
-# 官方:Living Atlas 条目 cfcb7609de5f478eb7666240902d4d3d(esri_imagery),
+# 来源:Living Atlas 条目 cfcb7609de5f478eb7666240902d4d3d(esri_imagery),
 # 服务 ic.imagery1.arcgis.com;2017-2025 逐年;9 类(1水体/2树木/4淹水植被/5作物/
-# 7建成/8裸地/9冰雪/10云/11牧场,官方条目描述 2026-11-11 核实);CC BY 4.0。
+# 7建成/8裸地/9冰雪/10云/11牧场,条目描述 2026-11-11 核实);CC BY 4.0。
 ESRI_LANDCOVER_URL = ("https://ic.imagery1.arcgis.com/arcgis/rest/services/"
                       "Sentinel2_10m_LandCover/ImageServer/exportImage")
 ESRI_YEARS = (2017, 2025)   # 可用年份区间(含)
@@ -67,7 +67,7 @@ ESRI_YEARS = (2017, 2025)   # 可用年份区间(含)
 DEFAULT_OUTPUT_ROOT = os.path.join(os.path.expanduser("~"), "plus_skill_GIS_data")  # 默认输出根目录 = 用户主目录下(跨机通用)
 
 
-# ---- NCDC FTP 渠道(CLCD 国内官方镜像,实测可达;账号在 ftp_config.json)----
+# ---- NCDC FTP 渠道(CLCD 国内国内镜像,实测可达;账号在 ftp_config.json)----
 
 def load_ftp_config():
     """NCDC FTP 账号:环境变量 PLUS_FTP_CONFIG > ~/.plus-full/ftp_config.json > 脚本目录
@@ -836,12 +836,12 @@ def bounds_wgs84_geom(geojson):
 def write_report(out_dir, region, years, infos, source="ncdc-ftp"):
     if source == "worldcover":
         src_desc = ("ESA WorldCover(10m 全球产品,v100=2020 / v200=2021,已重采样 30m;"
-                    "官方 esa-worldcover.org,许可 CC BY 4.0)")
+                    "esa-worldcover.org,许可 CC BY 4.0)")
     elif source == "esri":
         src_desc = ("Esri Sentinel-2 10m 年度土地覆盖(2017-2025 逐年,免注册;"
-                    "Impact Observatory 模型,官方 Living Atlas,CC BY 4.0)")
+                    "Impact Observatory 模型,Living Atlas,CC BY 4.0)")
     else:
-        src_desc = "CLCD(30m,年度,武汉大学/官方发布)"
+        src_desc = "CLCD(30m,年度,武汉大学/发布)"
     lines = [f"# 土地利用数据下载报告", "",
              f"- 研究区: {region}", f"- 数据源: {src_desc}",
              f"- 年份: {', '.join(str(y) for y in years)}", "",
@@ -881,7 +881,7 @@ def main():
                         help="手动模式:逗号分隔 文件路径:年份,如 D:\\a.tif:2010,D:\\b.tif:2020")
     parser.add_argument("--source", default="ncdc-ftp",
                         choices=["ncdc-ftp", "http", "worldcover", "esri"],
-                        help="下载渠道:默认 ncdc-ftp(CLCD 国内官方镜像,账号在 ftp_config.json);"
+                        help="下载渠道:默认 ncdc-ftp(CLCD 国内国内镜像,账号在 ftp_config.json);"
                              "worldcover=ESA WorldCover 10m(仅 2020/2021);"
                              "esri=Esri Land Cover 10m(2017-2025 逐年,免注册,推荐)")
     parser.add_argument("--res", type=int, default=30, choices=[30, 10],
@@ -1006,7 +1006,7 @@ def main():
                     print(f"  ❌ Esri {y} 年失败: {e}")
                 continue
             if args.source == "ncdc-ftp":
-                # 主渠道:NCDC FTP(国内官方镜像,账号配置一次性)
+                # 主渠道:NCDC FTP(国内国内镜像,账号配置一次性)
                 cfg = load_ftp_config()
                 remote = cfg["file_template"].format(year=y)
                 if args.dry_run:

@@ -183,13 +183,13 @@ def _sec_meta(proj, predict, target, seq, region, backtest, water, mapping, fact
     L.append(f"| 验证口径 | {'样本内' if proj.get('validation_mode') == 'in' else '样本外'} |")
     locked = proj.get("locked_classes") or []
     L.append(f"| 水域处理 | {'锁定不转出(' + '、'.join(locked) + ')' if locked else '不锁定'} |")
-    L.append(f"| 转换矩阵 | 官方模板(森林/建设用地不可逆)" + (
+    L.append(f"| 转换矩阵 | 默认模板(森林/建设用地不可逆)" + (
         ";区域化修改 " + "; ".join(f"{r.get('from')}→{r.get('to')}" for r in
                                 (proj.get("matrix_restrictions") or []))
         if proj.get("matrix_restrictions") else "") + " |")
     L.append(f"| 重分类 | {'自定义映射' if mapping else '自动(类别并集→连续编码)'} |")
     _drv = ("用户自供(体检网格一致+非全0)" if proj.get("drivers_source") == "user"
-            else "官方同款 17 项自动下载:地形/气候/人口/距离/土壤")
+            else "默认 17 项自动下载:地形/气候/人口/距离/土壤")
     L.append(f"| 驱动因子 | {factors} 项({_drv}) |")
     L.append(f"| 数据目录 | `{proj.get('data_dir') or ''}` |")
     L.append("")
@@ -244,13 +244,13 @@ def _sec_data(data_dir, proj, factors):
 def _sec_matrix(proj):
     """## 3b. 转换矩阵规则:基线 + 改动 + 依据(2026-11-10 用户要求:报告必须说明改了什么)
 
-    官方模板基线 = 森林/建设用地不可逆;区域化修改/用户自定义在此列出每条差异与依据,
+    默认模板基线 = 森林/建设用地不可逆;区域化修改/用户自定义在此列出每条差异与依据,
     水域锁定也在此按矩阵视角说明。
     """
     L = ["## 3b. 转换矩阵规则\n"]
     locked = proj.get("locked_classes") or []
     rests = proj.get("matrix_restrictions") or []
-    L.append("- 基线:官方模板——森林、建设用地不可逆(形成后不再转出),其余类别开放互转")
+    L.append("- 基线:默认模板——森林、建设用地不可逆(形成后不再转出),其余类别开放互转")
     if locked:
         # 2026-11-13 郑州实测:只禁转出会让其他地类按历史概率"灌进"水域(+32%);
         # 若矩阵里同时禁了"转入水域",文案写"双向锁定"
@@ -261,7 +261,7 @@ def _sec_matrix(proj):
                     if _to_water_banned
                     else "只禁止转出、不禁止转入(其他地类仍可按历史概率转入,面积可能增长)"))
     if rests:
-        L.append("- **区域化修改**(相对官方模板的改动,共 %d 条):" % len(rests))
+        L.append("- **区域化修改**(相对默认模板的改动,共 %d 条):" % len(rests))
         for r in rests:
             allow = "禁止" if not r.get("allow", True) else "允许"
             line = f"  - {allow} {r.get('from', '?')} → {r.get('to', '?')}"
@@ -269,7 +269,7 @@ def _sec_matrix(proj):
                 line += f";依据:{r.get('依据')}"
             L.append(line)
     else:
-        L.append("- 无区域化修改(使用官方模板)")
+        L.append("- 无区域化修改(使用默认模板)")
     L.append("")
     return L
 
@@ -491,7 +491,7 @@ def _sec_limits():
     L = ["## 7. 已知限制\n"]
     L.append("1. **FoM 才是位置能力的真实指标,Kappa 不是**——变化像元稀少,OA 天然偏高。")
     L.append("2. 气候因子为 2.5° 粗分辨率;人口默认 2020 年;OSM 道路/水域在国内有遗漏。")
-    L.append("3. 参数取官方手册默认(邻域 3 / 扩散 0.1 / 斑块 0.2 / 种子 0.1),未做调参寻优。")
+    L.append("3. 参数取随包手册默认(邻域 3 / 扩散 0.1 / 斑块 0.2 / 种子 0.1),未做调参寻优。")
     L.append("4. 水域锁定只禁止水域转出,不禁止其他类转入;若需冻结水域面积,"
              "还要在转换矩阵里禁止转入,且需重跑。")
     L.append("5. 面积极小的类(末期 <1000 像元,约 0.9 km²)难以生成独立斑块,"

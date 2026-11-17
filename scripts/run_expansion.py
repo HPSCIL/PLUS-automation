@@ -18,7 +18,7 @@ PLUS_BACKEND = get_plus_backend()
 def build_expansion_tmp(early_lulc, late_lulc, output_change):
     """构造"提取土地扩张"的操作单(PLUS 引擎规定的文本格式)
 
-    标签是引擎自己定义的(官方教程 4.2 节"提取土地扩张"):
+    标签是引擎自己定义的(教程 4.2 节"提取土地扩张"):
         <Input number>        输入图像个数
         <Input LULC series>   输入图像路径列表(起期在前、止期在后,顺序不能反)
         <Output change>       输出扩张图路径

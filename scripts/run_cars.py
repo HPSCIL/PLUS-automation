@@ -21,7 +21,7 @@ DEFAULT_NEIGHBORHOOD = 3
 DEFAULT_PATCH_GENERATION = 0.2
 DEFAULT_EXPANSION_COEFF = 0.1
 DEFAULT_SEED_PERCENTAGE = 0.1
-DEFAULT_THREADS = 8  # 【参数】CARS 线程数:官方引擎支持多线程;大区域(如重庆 2.3 亿像元)单线程慢到不可用,实测 8 线程快数倍
+DEFAULT_THREADS = 8  # 【参数】CARS 线程数:PLUS 引擎支持多线程;大区域(如重庆 2.3 亿像元)单线程慢到不可用,实测 8 线程快数倍
 DEFAULT_YEARS = 1
 
 
@@ -31,7 +31,7 @@ def build_cars_tmp(input_lulc, probability_paths, output_simulation,
                    thread_count=None, patch_generation=None,
                    expansion_coefficient=None, seed_percentage=None,
                    years=None):
-    """构造 CARS 模块的操作单(标签与官方教程/GUI 痕迹文件完全一致)
+    """构造 CARS 模块的操作单(标签与教程/GUI 痕迹文件完全一致)
 
     输入来源说明:
         probability_paths  ← LEAS 模块输出的概率波段(个数 = 地类数)

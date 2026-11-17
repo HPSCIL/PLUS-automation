@@ -2,8 +2,8 @@
 
 一条命令串起全部环节:
     ① 下载土地利用(CLCD,行政区名/GeoJSON 边界,分省包兜底,全国网格对齐)
-    ② 下载驱动因子(官方同款 17 项,自动对齐到参考栅格)
-    ③ 语义重分类(内置官方图例 + 显式映射;0 像元类自动成因分析)
+    ② 下载驱动因子(默认 17 项,自动对齐到参考栅格)
+    ③ 语义重分类(内置数据源图例 + 显式映射;0 像元类自动成因分析)
     ④ 检查 + 转换(PLUS convert,编码连续校验)
     ⑤ 建模(expansion → LEAS → 需求 → CARS → Kappa)
     ⑥ FoM 验证 + 汇总报告
@@ -17,8 +17,8 @@
 设计约定(与三城验收一致):
     - 回测:predict == 末年 → early=首年, late=次年, real=末年(默认矩阵)
     - 预测:predict > 末年 → early=首年, late=末年, real 空(默认矩阵)
-    - 需求:官方两法——2 期 → markov(非整周期自动插值);≥3 期 → linear
-    - 矩阵:官方模板(森林/建设用地不可逆);区域化修改由 AI/用户编辑生成的
+    - 需求:默认两法——2 期 → markov(非整周期自动插值);≥3 期 → linear
+    - 矩阵:默认模板(森林/建设用地不可逆);区域化修改由 AI/用户编辑生成的
       project.json(matrix_restrictions)后再确认
 """
 
@@ -257,7 +257,7 @@ def main():
     parser.add_argument("--mapping", default=None, help="重分类映射 JSON(不给则按类别并集自动生成恒等映射)")
     parser.add_argument("--demand", default="auto",
                         choices=["auto", "markov", "linear", "real"],
-                        help="需求方法:auto=2期markov,≥3期linear(官方两法);"
+                        help="需求方法:auto=2期markov,≥3期linear(默认两法);"
                              "real=真实验证年面积(仅回测,诊断口径,不作预测报告)")
     parser.add_argument("--validation", default="out", choices=["out", "in"],
                         help="验证口径:out=样本外(默认,论文主数字);"
@@ -465,7 +465,7 @@ def main():
         with open(os.path.join(data_dir, f".stage_{n}.done"), "w", encoding="utf-8") as f:
             f.write(key)
 
-    # ② 驱动因子:自动下载官方同款 17 项 / 用户自供文件夹体检复制(--drivers-dir)
+    # ② 驱动因子:自动下载默认 17 项 / 用户自供文件夹体检复制(--drivers-dir)
     t2 = time.time()
     ref_tif = os.path.join(data_dir, f"lulc_{years[0]}.tif")  # 网格检查也要用,--resume 时不能缺
     drivers_dir = os.path.join(data_dir, "drivers")
@@ -478,7 +478,7 @@ def main():
         tick("② 驱动因子(用户自供)", t2, inputs=args.drivers_dir,
              outputs=f"{len([x for x in os.listdir(drivers_dir) if x.startswith('df_')])} 个 df_*.tif")
     elif not stage_done("2", ref_tif):
-        print("=" * 60 + "\n【② 驱动因子下载(官方同款 17 项)】\n" + "=" * 60)
+        print("=" * 60 + "\n【② 驱动因子下载(默认 17 项)】\n" + "=" * 60)
         run([PY, script("download_drivers.py"), "--region", args.region,
              "--ref", ref_tif, "--output", drivers_dir, "--osm", args.osm])
         mark_done("2", ref_tif)
@@ -618,12 +618,12 @@ def main():
     del _m, _rev
 
     if args.demand == "auto":
-        # 官方两法(2026-11-09 定稿,GM(1,1) 已删):有效历史 ≥3 期 → linear;2 期 → markov。
+        # 默认两法(2026-11-09 定稿,GM(1,1) 已删):有效历史 ≥3 期 → linear;2 期 → markov。
         # 有效历史 = 回测时排除目标年(防近似作弊),预测时全部年份。
         # 不能用 len(years) 直接判:回测排除目标年后 linear 可能只剩 2 期(引擎 2 期拟合全 0)。
         hist_count = len(years) - 1 if args.predict == years[-1] else len(years)
         demand = "markov" if hist_count < 3 else "linear"
-        print(f"  auto 需求方法:{demand}(官方两法,有效历史 {hist_count} 期)")
+        print(f"  auto 需求方法:{demand}(默认两法,有效历史 {hist_count} 期)")
 
     else:
         demand = args.demand

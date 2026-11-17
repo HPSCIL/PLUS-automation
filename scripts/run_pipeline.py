@@ -51,7 +51,7 @@ DEMAND_LABELS = {
 # "湿地体系"假设,与 CLCD 语义冲突)。矩阵单一来源 = transition_matrix 配置:
 # "default" → build_default_matrix(按语义名锁森林/建设用地),或用户显式 N×N。
 
-# 官方示例模板的"不可逆类别"(依据:PLUS 教程 Parameterfile/TransitionMatrix_0.csv
+# 教程示例模板的"不可逆类别"(依据:PLUS 教程 Parameterfile/TransitionMatrix_0.csv
 # 与教程 GUI 运行记录:落叶林行 0,1,0...、城镇用地行 0,0,0,1,0...、常绿林行只允许自转或转草地)
 IRREVERSIBLE_CLASSES = {"森林", "落叶林", "常绿林", "建设用地", "城镇用地"}
 
@@ -60,7 +60,7 @@ WATER_CLASSES = {"水域", "水体", "湿地", "湖泊", "水库"}
 
 
 # 类名同义族:同一族内任意写法互认。
-# 起因(2026-11-11):官方模板写死"建设用地",而 CLCD 重分类后的类名是"不透水面"
+# 起因(2026-11-11):默认模板写死"建设用地",而 CLCD 重分类后的类名是"不透水面"
 # → 默认矩阵没锁住建设用地(城市可退化成耕地),matrix_restrictions 写"建设用地"也报类别名不存在。
 SYNONYM_GROUPS = (
     ("建设用地", "不透水面", "城镇用地", "城乡建设用地", "建成区", "人工表面", "城镇工矿用地"),
@@ -108,9 +108,9 @@ def _class_index(names, target):
 
 
 def build_default_matrix(class_names):
-    """按官方示例模板生成 N×N 默认转换矩阵(内置默认,用户无需自己上传)
+    """按教程示例模板生成 N×N 默认转换矩阵(内置默认,用户无需自己上传)
 
-    模板哲学(官方示例归纳):森林、建设用地不可逆(行 = 仅对角 1);
+    模板哲学(教程示例归纳):森林、建设用地不可逆(行 = 仅对角 1);
     其余类别(耕地/草地/水域/裸地)全开放(行 = 全 1)。
     地区性小修改用 project.json 的 matrix_restrictions 做(开工前调查实情/政策后改)。
 
@@ -131,7 +131,7 @@ def build_default_matrix(class_names):
             row = ["1"] * n
         rows.append(",".join(row))
     matrix = ";".join(rows)
-    print(f"  内置默认矩阵(官方模板,{n} 类):")
+    print(f"  内置默认矩阵(模板同教程,{n} 类):")
     for name, row in zip(names, rows):
         print(f"    {name}: {row}")
     if not locked:
@@ -204,14 +204,14 @@ def run_pipeline(early, late, real, features, output_dir, early_year,
                     预测年 = 终止年 + N×(终止年−起始年);配 interpolate=True 时,
                     目标年不在步长上会取前后可达年份的需求分段插值)
         "linear" —— 线性回归预测需求(任意年份均可,如 2028/2030;
-                    公式与官方引擎手动结果逐系数一致,已验证)
+                    公式与PLUS 引擎手动结果逐系数一致,已验证)
     real:验证真实图;做未来预测(无真实图)时传 None,自动跳过 Kappa 验证。
     history:linear 模式可给全部历史图(按时间顺序),不给则用 [early, late]。
     validation_mode:
         "out"(默认)= 样本外:expansion/LEAS/权重用 early→late 训练,从 late 模拟到 predict。
         "in"= 样本内:expansion/LEAS/权重用 early→predict(全周期)训练,
               CARS 仍从 late 出发模拟到 predict,验证 predict 真实图。
-              用途是证明"管线本身能复现变化"(官方 0.255 口径),不是论文主数字。
+              用途是证明"管线本身能复现变化"(教程 0.255 口径),不是论文主数字。
     diagnose:回测时额外跑一次"需求=真实面积"的诊断 CARS(复用已算出的概率/权重),
               用于把 FoM 损失拆成数量误差与位置误差。仅回测有效。
     """
@@ -271,7 +271,7 @@ def run_pipeline(early, late, real, features, output_dir, early_year,
 
         # 【导师 2026-11-10 实测】LEAS 按"扩张图最大类别编码"决定概率波段数:
         # 末位类在整个训练期从未有转入斑块 → 波段少 1 → CARS 类别数错位 → 0xC0000005 崩溃。
-        # 官方《教程一》5.8 已记载此问题。这里只检测告警、不改数据:缺末位类必崩,提前拦下。
+        # 《教程一》5.8 已记载此问题。这里只检测告警、不改数据:缺末位类必崩,提前拦下。
         import rasterio as _rio
         with _rio.open(expansion_out) as _s:
             _exp = {int(v) for v in np.unique(_s.read(1)) if int(v) not in (0, 255)}
@@ -280,7 +280,7 @@ def run_pipeline(early, late, real, features, output_dir, early_year,
         _miss = sorted(_lulc - _exp)
         if _miss and max(_miss) == max(_lulc):
             print(f"❌ 扩张图缺末位类 {_miss}:LEAS 概率波段将少 1 个,CARS 会报 0xC0000005 崩溃")
-            print("   官方解法(《教程一》5.8):重编码,把'有扩张的类'放末位,再重跑扩张提取;")
+            print("   教程解法(《教程一》5.8):重编码,把'有扩张的类'放末位,再重跑扩张提取;")
             print("   或确认扩张用了全周期(首年→末年),让末位类有机会保留少量转入斑块。")
             print("   详见 skill 包 FAQ.md F2。建模中止,处理后再跑。")
             return None
@@ -313,7 +313,7 @@ def run_pipeline(early, late, real, features, output_dir, early_year,
     weight_str = ",".join(f"{w:.7f}" for w in weights)
     print(f"  权重串: {weight_str}")
 
-    # ④ 需求预测:markov(整数周期)/ linear(任意年份)——官方教程两法
+    # ④ 需求预测:markov(整数周期)/ linear(任意年份)——教程两法
     # 抽成 _calc_demand(year):连续预测(sequence)要对多期分别求需求,公式只拟合一次
     hist_images = history or [early, late]
     hist_years = history_years or [early_year, late_year]
@@ -604,7 +604,7 @@ def main():
     parser.add_argument("--late-year", type=int, default=None, help="终止年份")
     parser.add_argument("--predict-year", type=int, default=None, help="验证/预测年份")
     parser.add_argument("--demand", default=None, choices=["markov", "linear", "real"],
-                        help="需求预测方法:markov(整数周期)/ linear(任意年份,官方两法)/ real(诊断:真实验证年面积,只测分配)")
+                        help="需求预测方法:markov(整数周期)/ linear(任意年份,默认两法)/ real(诊断:真实验证年面积,只测分配)")
     parser.add_argument("--validation", default=None, choices=["out", "in"],
                         help="验证口径:out=样本外(默认,论文主数字);in=样本内(扩张/概率用全周期训练,证明管线正确性)")
     parser.add_argument("--diagnose", action="store_true",
@@ -647,7 +647,7 @@ def main():
     args.history_years = args.history_years or proj.get("history_years")
     args.policy = pick("policy", "policy") or ""
     args.matrix = pick("matrix", "transition_matrix") or "default"
-    # 矩阵解析:支持 "default"(内置官方模板)、显式矩阵串;两者都可叠加针对性修改
+    # 矩阵解析:支持 "default"(内置默认模板)、显式矩阵串;两者都可叠加针对性修改
     class_names = proj.get("class_names") or {}
     restrictions = proj.get("matrix_restrictions") or []
     if args.matrix == "default":

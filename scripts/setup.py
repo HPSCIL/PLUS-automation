@@ -9,8 +9,8 @@
     python setup.py --from-backend <现有 plus-backend 目录>     ← 从已有引擎目录复制
     python setup.py --check                                      ← 只检查当前配置/依赖
 
-引擎来源说明:PLUS.exe 是官方软件自带的计算引擎(官方 GUI 安装包内含),
-本安装器只负责"复制 + 生成官方协议的一行 bat + 写配置",不含任何私有代码。
+引擎来源说明:PLUS.exe 是软件自带的计算引擎(GUI 安装包内含),
+本安装器只负责"复制 + 生成引擎协议的一行 bat + 写配置",不含任何私有代码。
 """
 
 import os
@@ -71,7 +71,7 @@ def build_runtime(backend_source, target=None):
     shutil.copytree(src_cpp, dst_cpp)
     print(f"✅ 引擎文件已复制: {dst_cpp}")
 
-    # 2) 生成 9 个 bat(官方协议的一行启动器)
+    # 2) 生成 9 个 bat(引擎协议的一行启动器)
     made = generate_bats(target)
     print(f"✅ 已生成 {len(made)} 个 bat: {', '.join(made)}")
 

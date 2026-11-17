@@ -125,7 +125,7 @@ def env_check():
         print("✅ 依赖: rasterio/numpy/scipy/shapely/requests/osmium 齐全")
     try:
         be = get_plus_backend()
-        # 引擎可执行文件位置:plus-backend/cpp/PLUS.exe(官方目录结构,bat 在根目录)
+        # 引擎可执行文件位置:plus-backend/cpp/PLUS.exe(引擎目录结构,bat 在根目录)
         exe = os.path.join(be, "PLUS.exe")
         if not os.path.exists(exe):
             exe = os.path.join(be, "cpp", "PLUS.exe")
@@ -256,9 +256,9 @@ def run_engine(bat_name, tmp_name, tmp_content, plus_backend,
     return True, stdout, stderr
 
 
-# 各模块的 bat 与 tmp 对应关系(官方协议:一行启动器 + 固定 tmp 名)
+# 各模块的 bat 与 tmp 对应关系(引擎协议:一行启动器 + 固定 tmp 名)
 # bat 内容是这个模板,可以由我们生成,不是谁的私有代码。
-# 注意:markov 模块的官方启动器多了 -o 指定输出路径,其余模块无额外参数。
+# 注意:markov 模块的引擎启动器多了 -o 指定输出路径,其余模块无额外参数。
 BAT_TEMPLATE = '@echo off\ncd /d "%~dp0"\ncpp\\PLUS.exe -t {module} -i {tmp}{extra}\n'
 BAT_SPECS = {
     "convert": ("convert.bat", "PLUS_Convert.tmp", ""),
@@ -273,7 +273,7 @@ BAT_SPECS = {
 
 
 def generate_bats(backend_dir):
-    """在引擎目录生成全部 bat 启动器(内容由官方调用协议决定,我们自产)"""
+    """在引擎目录生成全部 bat 启动器(内容由引擎调用协议决定,我们自产)"""
     made = []
     for module, (bat_name, tmp_name, extra) in BAT_SPECS.items():
         p = os.path.join(backend_dir, bat_name)

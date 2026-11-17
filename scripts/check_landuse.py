@@ -152,7 +152,7 @@ def convert_tif(input_path, output_path, plus_backend=PLUS_BACKEND, timeout=600)
     - 环境变量 PLUS_CONVERT_ENGINE=plus 强制走引擎版(交叉验证用)
     - 快速通道不适用(多波段/非 uint8/负值)时自动回退引擎版
 
-    引擎版原理（PLUS 官方引擎只认这一种无人值守用法）：
+    引擎版原理（PLUS PLUS 引擎只认这一种无人值守用法）：
         1. 把输入/输出路径写进文本文件 PLUS_Convert.tmp
         2. 运行 convert.bat，它内部执行 PLUS.exe 读取 tmp 并干活
         3. 检查输出文件是否真的生成了
