@@ -16,7 +16,7 @@
 
 答案 JSON 示例:
 {
-  "lulc_source": "esri",            # esri | clcd | worldcover | stanford | user
+  "lulc_source": "esri",            # esri | clcd | worldcover | cnlucc | stanford | user
   "lulc_res": 30,                   # 30 | 10
   "years": [2017, 2025],
   "demand": "markov",               # markov | linear
@@ -27,7 +27,9 @@
   "water_lock": "",                 # 开放题:AI 检索后填,如 "lock:该地有黄河干流..."
   "matrix_choice": "regional",      # regional(区域化修改,推荐) | default | custom
   "matrix_restrictions": [],        # regional 时 AI 检索后填 [{"from","to","allow","依据"}]
-  "output_dir": ""                  # 空 = 默认(用户主目录)
+  "output_dir": "",                 # 空 = 默认(用户主目录)
+  "lulc_dir": "",                   # cnlucc/user/stanford 必填:用户提供 tif 的文件夹路径
+  "lulc_legend_json": ""            # user/stanford 必填:{"编码":"语义名"} 分类图例
 }
 """
 import json
@@ -42,6 +44,18 @@ except Exception:
 ESRI_YEARS = (2017, 2025)
 CLCD_YEARS = (1990, 2022)
 WC_YEARS = (2020, 2021)
+# CNLUCC(RESDC)13 期(非逐年)
+CNLUCC_YEARS = {1980, 1990, 1995, 2000, 2005, 2008, 2010, 2013, 2015, 2018, 2020, 2023, 2025}
+# 2026-11-17 图例库扩容:内置图例数据源年份范围(闭区间)
+BUILTIN_LEGEND_SOURCE_RANGES = {
+    "globeland30": (2000, 2020),   # 仅 2000/2010/2020 三期(此处只校验区间)
+    "glc_fcs30": (1985, 2022),
+    "modis_igbp": (2001, 2023),    # 500m 粗分辨率
+    "esa_cci": (1992, 2020),
+    "from_glc": (2015, 2019),      # 2015(30m)/2017/2019(10m)
+    "globcover": (2005, 2009),     # 2005-06/2009 两期
+    "modis_umd": (2001, 2023),
+}
 
 
 def questions():
@@ -69,8 +83,9 @@ def questions():
             "options": [
                 "不用了,就用第一问选的",
                 "WorldCover 30m/10m 2020-2021(免注册;仅 2020/2021 两期)",
-                "Stanford 派生数据(需开代理;数据经代理下载后按 --manual 提供)",
-                "我自己的多年份 tif(选此项紧接弹输入框要文件夹路径)",
+                "Stanford 派生数据(需开代理;数据经代理下载后提供文件夹)",
+                "我自己的多年份 tif(紧接弹输入框要文件夹路径;若知道数据源名"
+                "[如 CNLUCC/GlobeLand30]一并告诉 AI,命中内置图例库则免图例表)",
             ],
         },
         "Q2_years": {
@@ -144,7 +159,9 @@ def validate(answers):
     errs = []
     src = answers.get("lulc_source")
     years = answers.get("years") or []
-    if src not in ("esri", "clcd", "worldcover", "stanford", "user"):
+    if src not in ("esri", "clcd", "worldcover", "cnlucc", "stanford", "user",
+                   "globeland30", "glc_fcs30", "modis_igbp", "esa_cci",
+                   "from_glc", "globcover", "modis_umd"):
         errs.append(f"lulc_source 非法: {src}")
         return False, errs
     if src == "esri" and any(not (ESRI_YEARS[0] <= y <= ESRI_YEARS[1]) for y in years):
@@ -153,6 +170,17 @@ def validate(answers):
         errs.append(f"CLCD 年份必须 {CLCD_YEARS[0]}-{CLCD_YEARS[1]},给了 {years}")
     if src == "worldcover" and any(y not in WC_YEARS for y in years):
         errs.append(f"WorldCover 只有 {list(WC_YEARS)},给了 {years}")
+    if src == "cnlucc" and any(y not in CNLUCC_YEARS for y in years):
+        errs.append(f"CNLUCC 只有 13 期 {sorted(CNLUCC_YEARS)},给了 {years}")
+    if src in BUILTIN_LEGEND_SOURCE_RANGES:
+        lo, hi = BUILTIN_LEGEND_SOURCE_RANGES[src]
+        if any(not (lo <= y <= hi) for y in years):
+            errs.append(f"{src} 年份范围 {lo}-{hi},给了 {years}")
+    if src in ("cnlucc", "user", "stanford") or src in BUILTIN_LEGEND_SOURCE_RANGES:
+        if not answers.get("lulc_dir"):
+            errs.append("选了这个数据源必须给 lulc_dir(用户提供数据的文件夹路径)")
+    if src in ("user", "stanford") and not answers.get("lulc_legend_json"):
+        errs.append("user/stanford 数据源必须给 lulc_legend_json(分类图例,格式 {\"编码\":\"语义名\"})")
     if len(years) < 2:
         errs.append("历史期数至少 2 期")
     res = answers.get("lulc_res")
@@ -182,6 +210,23 @@ def main():
     if "--finalize" in sys.argv:
         raw = sys.argv[sys.argv.index("--finalize") + 1]
         answers = json.loads(raw)
+        ok, errs = validate(answers)
+        if not ok:
+            print("❌ 答案校验失败:")
+            for e in errs:
+                print(f"   - {e}")
+            sys.exit(1)
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "..", "answers.json"), "w", encoding="utf-8") as f:
+            json.dump(answers, f, ensure_ascii=False, indent=2)
+        print("✅ 答案校验通过,已写 answers.json")
+        return
+    if "--finalize-file" in sys.argv:
+        # 文件方式(2026-11-17 补:docstring 早已承诺,实现缺失;AI 手拼 JSON 字符串
+        # 容易转义出错,文件更稳)
+        path = sys.argv[sys.argv.index("--finalize-file") + 1]
+        with open(path, encoding="utf-8") as f:
+            answers = json.load(f)
         ok, errs = validate(answers)
         if not ok:
             print("❌ 答案校验失败:")

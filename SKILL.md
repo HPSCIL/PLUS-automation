@@ -47,8 +47,9 @@ description: PLUS 土地利用模拟一站式全流程:一句话从数据下载�
      补充数据源(第二问;第一问选了前 3 项的用户选第 1 项"不用了"即可):
      · 不用了,就用第一问选的
      · WorldCover 30m/10m 2020-2021(免注册;仅 2020/2021 两期)
-     · Stanford 派生数据(需开代理;数据经代理下载后按 --manual 提供)
-     · 我自己的多年份 tif(选此项紧接弹输入框要文件夹路径)
+     · Stanford 派生数据(需开代理;数据经代理下载后提供文件夹)
+     · 我自己的多年份 tif(紧接弹输入框要文件夹路径;若知道数据源名[如 CNLUCC/GlobeLand30]
+       一并告诉 AI,命中内置图例库则免图例表)
      年份联动:Esri 限 2017-2025;CLCD 限 1990-2022;WorldCover 仅 2020/2021。
      选 CLCD 的并行流程:其余问题问完后,先启动驱动因子下载(后台跑),
      同时按"数据源注册指引"引导用户注册拿凭据,凭据到手再启动土地利用下载。
@@ -100,9 +101,25 @@ description: PLUS 土地利用模拟一站式全流程:一句话从数据下载�
 
 全部答复后才执行。
 
-**第 1 项选了"自己的数据"时**:紧接弹输入框要数据文件夹路径;命名不规整时引导用户说明各文件年份;分类体系不同时确认自定义映射。
+**第 1 项选了"自己的数据"或第 2 项选了 Stanford 时**:紧接弹输入框要数据文件夹路径(命名不规整时引导用户说明各文件年份);**追问数据源名**(如"数据是哪个产品?CNLUCC/GlobeLand30/GLC_FCS30/MODIS/ESA CCI/FROM-GLC/GlobCover,或未知?")→ 对照下方"内置图例库"表:命中 → 答案 lulc_source 用对应键(如 cnlucc),免图例表;未命中 → lulc_source=user,必须让用户给出分类图例 JSON({"编码":"语义名"},AI 引导用户给,或 AI 检索图例后与用户确认,**禁止 AI 猜图例**)。
 
-## 数据源注册指引(用户选了"需注册"的数据源时,一步步带用户完成)
+## 内置图例库速查(用户提供 tif 时按此对照,命中则免图例表)
+
+| 用户说的数据源 | `--lulc-source` 键 | 年份 | 分辨率 | 图例口径 |
+|---|---|---|---|---|
+| CNLUCC(中科院 RESDC) | cnlucc | 13 期:1980~2025 间断 | 30m | 一级 6 类,二级编码自动并一级 |
+| GlobeLand30(自然资源部) | globeland30 | 2000/2010/2020 | 30m | 10 类:耕地/森林/草地/灌木/湿地/水域/苔原/建设用地/裸地/冰川→裸地 |
+| GLC_FCS30(中科院空天院) | glc_fcs30 | 1985-2022 | 30m | 二级 35 类并 9 大语义类 |
+| MODIS MCD12Q1(IGBP) | modis_igbp | 2001-2023 逐年 | **500m(粗,报告会注明)** | 17 类并 9 大语义类 |
+| MODIS MCD12Q1(UMD) | modis_umd | 2001-2023 逐年 | **500m(粗)** | 16 类并 9 大语义类;**⚠️ UMD 的 0=水体与 PLUS 的 0=背景冲突,上传前须把水体 0 重编码(如 0→18),否则报错** |
+| ESA CCI | esa_cci | 1992-2020 逐年 | 300m | 37 类并 9 大语义类 |
+| GlobCover(ESA MERIS) | globcover | 2005-06/2009 | 300m | 22 类并 9 大语义类 |
+| FROM-GLC(清华宫鹏) | from_glc | 2015(30m)/2017/2019(10m) | 30m/10m | 10 类:苔原→草地、冰雪→裸地 |
+| 其他未知体系 | user | 不限 | 不限 | 必须给 --lulc-legend-json |
+
+以上全部走"人工下载 → 文件夹提供(--lulc-dir)"模式,skill 自动按 4 位年份识别文件、自动重分类,后续流程与自动下载渠道完全相同(自动 uint8 转换、按边界代裁剪、多期网格对齐、值域-图例校验、表外编码拦截等检查由脚本自动执行,控制台会提示;AI 无需逐条操办)。用户只需准备 **GeoTIFF 格式** 的数据(HDF/NetCDF 先用 GIS 转)。
+
+## 数据源注册指引(仅 CLCD 需要;其他数据源一律由用户自行下载后提供文件夹,不引导注册)
 
 **CLCD(NCDC 平台,1990-2022 逐年;需要 2017 以前年份时选它)**:
 1. 打开国家冰川冻土沙漠科学数据中心:https://ftp.ncdc.ac.cn(注册账号)
@@ -117,7 +134,7 @@ description: PLUS 土地利用模拟一站式全流程:一句话从数据下载�
    或者直接把账号密码告诉 AI,由 AI 代写入。
 6. 完成后重新跑下载,skill 自动用新凭据,不再提示缺账号。
 
-**其他需注册数据源(陆续接入,规则相同)**:注册 → 平台申请数据权限 → 审批 → 把凭据给 AI/放 `~/.plus-full/`。每家的具体步骤接入时补充在本节。
+**其他数据源(CNLUCC/GlobeLand30/GLC_FCS30/MODIS/GlobCover/FROM-GLC 等)一律不做注册引导**:用户自行下载好数据 → 按"我自己的多年份 tif"提供文件夹 → skill 识别数据源(见速查表)→ 自动预处理与模拟。skill 的职责 = 数据到手后的正确识别与处理,不管注册下载。
 
 ## 执行
 
@@ -150,6 +167,12 @@ python scripts/run_full.py --region 鄂州市 --years 2020,2021 --predict 2025 -
 # 用户自供驱动因子(跳过自动下载;df_*.tif 命名即可,网格不一致自动重采样对齐)
 python scripts/run_full.py --region 鄂州市 --years 2010,2015,2020 --predict 2030 --drivers-dir D:\my_factors
 
+# CNLUCC(RESDC,人工下载后提供;内置 6 类图例自动重分类,二级编码自动并一级)
+python scripts/run_full.py --region 鄂州市 --years 2000,2010,2020 --predict 2030 --lulc-source cnlucc --lulc-dir D:\cnlucc_data
+
+# 用户自有数据(分类体系未知:必须给分类图例 {编码:语义名})
+python scripts/run_full.py --region 鄂州市 --years 2000,2010,2020 --predict 2030 --lulc-source user --lulc-dir D:\my_lulc --lulc-legend-json "{\"1\":\"耕地\",\"2\":\"林地\",\"3\":\"水域\"}"
+
 # 只重生成唯一汇总报告(不重跑建模,复用已有产物)
 python scripts/make_report.py --data-dir ~/plus_skill_GIS_data/371700 --project project_full_2030.json
 ```
@@ -178,7 +201,7 @@ python scripts/make_report.py --data-dir ~/plus_skill_GIS_data/371700 --project 
 
 ## 环节(①→⑨)
 
-1. **①土地利用下载**:Esri Land Cover(免注册,2017-2025 逐年,服务端按范围裁剪)/ CLCD(NCDC FTP,分省包兜底 + 全国网格对齐,需凭据)/ WorldCover(AWS S3 分幅 tile,仅 2020/2021,10m→30m 众数重采样,Albers 投影);均按边界裁切,各期网格强制对齐
+1. **①土地利用下载**:Esri Land Cover(免注册,2017-2025 逐年,服务端按范围裁剪)/ CLCD(NCDC FTP,分省包兜底 + 全国网格对齐,需凭据)/ WorldCover(AWS S3 分幅 tile,仅 2020/2021,10m→30m 众数重采样,Albers 投影);均按边界裁切,各期网格强制对齐;**用户提供数据**(CNLUCC/自有/Stanford:`--lulc-dir` 指向文件夹,文件名按 4 位年份匹配自动导入,跳过下载;CNLUCC 内置 6 类图例,自有/Stanford 需 `--lulc-legend-json` 分类图例)
 2. **②驱动因子**:默认 17 项自动下载(地形/气候/人口/道路水域距离,自动对齐到参考栅格;已存在且网格一致的直接复用)/ 用户自供文件夹(`--drivers-dir`:df_*.tif,网格/投影不一致**自动重采样对齐**,有效值非全 0 体检,不过即停)
 3. **③语义重分类**:内置数据源图例(CLCD 9 类);自动映射 = 各期类别并集→连续编码
 4. **④检查转换**:编码连续性/uint8/nodata 校验 + 转 PLUS 格式(rasterio 快速通道,与引擎产物逐像元一致)

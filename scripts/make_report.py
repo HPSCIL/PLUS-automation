@@ -166,6 +166,15 @@ def _sec_meta(proj, predict, target, seq, region, backtest, water, mapping, fact
     _src = {"clcd": "CLCD 30m 逐年数据(中科院, Yang & Huang 2021)",
             "worldcover": _wc,
             "esri": "Esri Sentinel-2 10m 年度土地覆盖(2017-2025 逐年,聚合 30m;CC BY 4.0)",
+            "cnlucc": "CNLUCC 30m 多期土地利用(中科院 RESDC,徐新良等;13 期,人工下载提供)",
+            "globeland30": "GlobeLand30 30m 地表覆盖(自然资源部;2000/2010/2020,人工下载提供)",
+            "glc_fcs30": "GLC_FCS30 30m 精细地表覆盖(中科院空天院;1985-2022,人工下载提供)",
+            "modis_igbp": "MODIS MCD12Q1 IGBP 500m 土地覆盖(2001-2023 逐年,粗分辨率,人工下载提供)",
+            "esa_cci": "ESA CCI 300m 土地覆盖(1992-2020 逐年,人工下载提供)",
+            "from_glc": "FROM-GLC 土地覆盖(清华大学宫鹏团队;30m 2015 / 10m 2017·2019,人工下载提供)",
+            "globcover": "GlobCover 300m 土地覆盖(ESA MERIS;2005-06/2009 两期,人工下载提供)",
+            "modis_umd": "MODIS MCD12Q1 UMD 500m 土地覆盖(2001-2023 逐年,粗分辨率,人工下载提供)",
+            "stanford": "Stanford 派生数据(经代理下载,用户提供)",
             "user": "用户自有土地利用数据(各年份 tif 由用户提供)"}
     L.append(f"| 数据源 | {_src.get(_ds, _src['user'])} |")
     L.append(f"| 训练期 | {proj.get('early_year')}–{proj.get('late_year')} |")
@@ -589,6 +598,11 @@ def build_report(data_dir, out_name, proj, predict, region,
     _ds = _data_source(proj, data_dir)
     _head_src = {"clcd": "CLCD 30m ", "worldcover": "ESA WorldCover 10m ",
                  "esri": "Esri Sentinel-2 10m ",
+                 "cnlucc": "CNLUCC 30m ", "stanford": "Stanford derived ",
+                 "globeland30": "GlobeLand30 30m ", "glc_fcs30": "GLC_FCS30 30m ",
+                 "modis_igbp": "MODIS MCD12Q1 500m ", "esa_cci": "ESA CCI 300m ",
+                 "from_glc": "FROM-GLC ", "globcover": "GlobCover 300m ",
+                 "modis_umd": "MODIS MCD12Q1 UMD 500m ",
                  "user": "用户提供的 "}
     head = (f"以 {_head_src.get(_ds, _head_src['user'])}{early_year}–{late_year} 多期土地利用数据为训练期,"
             f"PLUS 模型(扩张分析 + LEAS 随机森林 + "

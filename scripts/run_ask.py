@@ -38,6 +38,16 @@ def build_cmd(answers):
         cmd += ["--sequence", str(seq)]
     if str(answers.get("water_lock") or "").startswith("lock"):
         cmd += ["--water", "lock"]
+    # 用户提供数据的数据源(内置图例四家 + cnlucc/user/stanford):文件夹路径
+    # user/stanford 另需分类图例
+    _user_provided = ("cnlucc", "user", "stanford",
+                      "globeland30", "glc_fcs30", "modis_igbp", "esa_cci",
+                      "from_glc", "globcover", "modis_umd")
+    if str(answers.get("lulc_source")) in _user_provided:
+        cmd += ["--lulc-dir", str(answers.get("lulc_dir") or "")]
+    if str(answers.get("lulc_source")) in ("user", "stanford"):
+        cmd += ["--lulc-legend-json",
+                json.dumps(answers.get("lulc_legend_json") or {}, ensure_ascii=False)]
     mres = answers.get("matrix_restrictions")
     if mres:
         cmd += ["--matrix-restrictions", json.dumps(mres, ensure_ascii=False)]

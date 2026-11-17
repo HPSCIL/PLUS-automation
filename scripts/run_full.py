@@ -97,6 +97,251 @@ TIMING = []
 LOG_DIR = None  # 子命令完整日志目录(定位到 data_dir 后设置)
 
 
+# ---------------- 用户提供土地利用数据(CNLUCC/自有/Stanford,跳过①自动下载) ----------------
+# CNLUCC(RESDC)13 期:1980 1990 1995 2000 2005 2008 2010 2013 2015 2018 2020 2023 2025
+CNLUCC_YEARS = {1980, 1990, 1995, 2000, 2005, 2008, 2010, 2013, 2015, 2018, 2020, 2023, 2025}
+# 2026-11-17 图例库扩容:内置图例数据源全部走"用户提供文件夹"模式(下载无自动渠道)
+# 数据源键 → 年份范围(闭区间;None = 不校验)
+USER_PROVIDED_SOURCES = ("cnlucc", "user", "stanford",
+                         "globeland30", "glc_fcs30", "modis_igbp", "esa_cci",
+                         "from_glc", "globcover", "modis_umd")
+BUILTIN_LEGEND_SOURCES = ("cnlucc", "globeland30", "glc_fcs30", "modis_igbp", "esa_cci",
+                          "from_glc", "globcover", "modis_umd")
+# 需 --lulc-dir(用户提供数据);user/stanford 另需 --lulc-legend-json(图例内置则不必)
+SOURCE_YEAR_RANGES = {
+    "globeland30": (2000, 2020),   # 仅 2000/2010/2020 三期(此处只校验区间)
+    "glc_fcs30": (1985, 2022),     # 1985-2022
+    "modis_igbp": (2001, 2023),    # 2001-2023 逐年(500m 粗分辨率)
+    "esa_cci": (1992, 2020),       # 1992-2020 逐年(300m)
+    "from_glc": (2015, 2019),      # 2015(30m)/2017/2019(10m)
+    "globcover": (2005, 2009),     # 2005-06(v2.2)/2009 两期(300m)
+    "modis_umd": (2001, 2023),     # 同 IGBP(UMD 为 LC_Type2 图例)
+}
+
+
+def import_user_lulc(lulc_dir, years, data_dir):
+    """扫描用户提供的 tif 文件夹,按文件名里的 4 位年份匹配,统一复制为
+    data_dir/lulc_YYYY.tif(后续环节无感知)。缺年份/同年份多文件/无年份 → 报错。
+    2026-11-17 增强:体检每期值域(供核对图例/发现异常值),报错时列出被跳过的文件。"""
+    import re
+    import shutil
+    import rasterio
+    import numpy as np
+    if not lulc_dir or not os.path.isdir(lulc_dir):
+        print(f"❌ --lulc-dir 无效: {lulc_dir}")
+        sys.exit(1)
+    tifs = sorted(f for f in os.listdir(lulc_dir)
+                  if f.lower().endswith(".tif"))
+    if not tifs:
+        others = sorted(os.listdir(lulc_dir))
+        print(f"❌ --lulc-dir 里没有 tif 文件: {lulc_dir}")
+        print(f"   文件夹里实际是: {others or '(空)'}")
+        print("   skill 只认 GeoTIFF(.tif)——MODIS 原始 HDF、ESA CCI 原始 NetCDF 等")
+        print("   格式请先用 GIS 软件转成 GeoTIFF 再放入")
+        sys.exit(1)
+    found = {}
+    skipped = []
+    for f in tifs:
+        ms = re.findall(r"(\d{4})", f)
+        if len(ms) != 1:
+            skipped.append(f)
+            continue
+        y = int(ms[0])
+        if y in found:
+            print(f"❌ 年份 {y} 对应多个文件: {found[y]} 与 {f},请只留一个")
+            sys.exit(1)
+        found[y] = f
+    if skipped:
+        print(f"  ⚠️ 以下文件因文件名里 4 位年份不是恰好一个而被跳过(不参与建模):")
+        for f in skipped:
+            print(f"     - {f}")
+    missing = [y for y in years if y not in found]
+    if missing:
+        print(f"❌ 提供的文件缺少这些年份: {missing}(已识别: {sorted(found)})")
+        if skipped:
+            print(f"   注意:上面 {len(skipped)} 个被跳过的文件可能就对应这些年份,"
+                  f"请把文件名改成只含一个 4 位年份(如 lulc_{missing[0]}.tif)")
+        sys.exit(1)
+    for y in years:
+        shutil.copy2(os.path.join(lulc_dir, found[y]),
+                     os.path.join(data_dir, f"lulc_{y}.tif"))
+        print(f"  📥 {found[y]} → lulc_{y}.tif")
+    extra = [f"{y}({f})" for y, f in found.items() if y not in years]
+    if extra:
+        print(f"  ℹ️ 文件夹里还有未用到的年份文件: {', '.join(extra)}")
+    # 值域体检:每期编码与像元数(供核对图例、发现异常 nodata 哨兵值)
+    print("  体检:各期值域与像元统计(请核对与所选数据源图例一致)")
+    conv_notes = []
+    for y in years:
+        try:
+            with rasterio.open(os.path.join(data_dir, f"lulc_{y}.tif")) as s:
+                a = s.read(1)
+                vals, cnts = np.unique(a, return_counts=True)
+            stats = ", ".join(f"{int(v)}×{int(c)}" for v, c in zip(vals, cnts))
+            print(f"    {y}: {stats}")
+            # 常见非法 nodata 哨兵值:真实地类不该出现这些(出现 = 转格式时 nodata 没设对)
+            _sus = [int(v) for v in vals if int(v) in (-9999, -32768, 32767, 65535, 32766)]
+            if _sus:
+                print(f"    ⚠️ {y} 出现疑似未处理的 nodata 哨兵值 {_sus}——"
+                      f"将尝试自动转换(已知哨兵值 → 0 背景),未知值会中止")
+        except Exception as e:
+            print(f"    ⚠️ {y} 读取失败: {e}")
+            continue
+        # 检查 + 自动转 uint8(2026-11-17:uint8 不动;0~255 整数自动转;
+        # 小数/>255/未知负数 → 报错中止)
+        _n = ensure_uint8(os.path.join(data_dir, f"lulc_{y}.tif"))
+        if _n:
+            conv_notes.append(_n)
+    return conv_notes
+
+
+def ensure_uint8(tif_path):
+    """检查并自动转 uint8(2026-11-17,用户要求:先检查后自动转)
+
+    uint8 → 不动;int16/int32/float 且值全为 0~255 的整数 → 自动转(含已知
+    nodata 哨兵值 → 0);含小数、>255 的值、未知负数 → 报错中止(这些场景
+    需要人工决策,自动转会把 nodata 转错)。
+    返回转换说明(供重分类说明追溯),无需转换返回 None。
+    """
+    import rasterio
+    import numpy as np
+    with rasterio.open(tif_path) as s:
+        if s.dtypes[0] == "uint8":
+            return None
+        a = s.read(1)
+        meta = s.meta
+    name = os.path.basename(tif_path)
+    # 小数检查:分类图不应有小数(3.0 这种整数值的 float 可以安全转)
+    if a.dtype.kind == "f" and not np.all(a == np.round(a)):
+        _frac = sorted({float(v) for v in np.unique(a) if float(v) != round(float(v))})[:5]
+        print(f"❌ {name} 含小数像元值 {_frac}——分类图不应有小数,"
+              f"请检查数据(可能是概率图或处理错误)")
+        sys.exit(1)
+    vals = np.unique(a).astype(np.float64)
+    big = [int(v) for v in vals if v > 255]
+    if big:
+        print(f"❌ {name} 含 >255 的值 {big[:5]}——uint8 放不下,"
+              f"请检查数据编码(可能不是分类图或编码体系错误)")
+        sys.exit(1)
+    neg = [int(v) for v in vals if v < 0]
+    KNOWN_NODATA = {-9999, -32768, -32767, -32766, -99999, -32768.0, -9999.0}
+    unknown = [v for v in neg if v not in KNOWN_NODATA]
+    if unknown:
+        print(f"❌ {name} 含未知负数 {unknown[:5]}——疑似未处理的 nodata 值,"
+              f"请先确认这些值该映射成 0(背景)还是别的类,再重跑")
+        sys.exit(1)
+    a2 = a.copy()
+    if neg:
+        a2[np.isin(a, neg)] = 0  # 已知 nodata 哨兵值 → 背景 0
+    out = a2.astype("uint8")
+    meta.update(dtype="uint8", nodata=None)
+    with rasterio.open(tif_path, "w", **meta) as dst:
+        dst.write(out, 1)
+    note = (f"【自动转 uint8】{name} 原数据类型 {a.dtype},已自动转为 uint8")
+    if neg:
+        note += f"(nodata 哨兵值 {neg} → 0 背景)"
+    note += "。\n"
+    print(f"  🔧 {note.strip()}")
+    return note
+
+
+def align_categorical(src_path, ref_profile, out_path):
+    """分类图网格对齐:最近邻重采样 + uint8 + 背景 0(2026-11-17)
+
+    不能用 download_drivers.align_to_ref——那是双线性+float32,会把类编码
+    混成 3.7 这种值;分类图必须最近邻保持整数编码。
+    """
+    import rasterio
+    import numpy as np
+    from rasterio.enums import Resampling
+    from rasterio.warp import reproject
+    with rasterio.open(src_path) as s:
+        arr = np.zeros((ref_profile["height"], ref_profile["width"]), dtype="uint8")
+        reproject(
+            source=rasterio.band(s, 1),
+            destination=arr,
+            src_transform=s.transform, src_crs=s.crs,
+            dst_transform=ref_profile["transform"], dst_crs=ref_profile["crs"],
+            resampling=Resampling.nearest, src_nodata=0,
+        )
+    p = dict(ref_profile)
+    p.update(dtype="uint8", count=1, compress="deflate")
+    with rasterio.open(out_path, "w", **p) as dst:
+        dst.write(arr, 1)
+    return out_path
+
+
+def check_extent_uncropped(data_dir, years, region, cache_dir, no_check=False):
+    """疑似未裁切检查 + 自动代裁剪(2026-11-17):数据覆盖面积 > 研究区边界 4 倍 →
+    自动按边界裁剪全部期次(复用 download_lulc.clip_to_boundary:窗口裁剪+边界掩膜,
+    保持原投影与分辨率);--no-extent-check 跳过检查也不裁;边界获取失败 → 跳过不阻塞。
+    返回裁剪说明(供重分类说明/报告追溯);未裁剪返回 None。"""
+    if no_check:
+        return None
+    try:
+        import rasterio
+        from rasterio.warp import transform_bounds
+        from shapely.geometry import shape
+        from download_lulc import fetch_boundary_geojson, load_boundary_file
+    except Exception:
+        print("  ℹ️ 范围检查依赖缺失,跳过(可用 --no-extent-check 静默)")
+        return None
+    gj = None
+    if os.path.isfile(region):
+        try:
+            gj = load_boundary_file(region)
+        except Exception:
+            gj = None
+    else:
+        try:
+            cache = os.path.join(cache_dir, f"boundary_extent_check.geojson")
+            gj = fetch_boundary_geojson(region, "", cache)
+        except Exception:
+            gj = None
+    if not gj or not gj.get("features"):
+        print("  ℹ️ 无法获取研究区边界,跳过'疑似未裁切'检查与代裁剪")
+        return None
+    try:
+        poly = shape(gj["features"][0]["geometry"])
+        minx, miny, maxx, maxy = poly.bounds
+        b_deg2 = abs((maxx - minx) * (maxy - miny))
+        tif = os.path.join(data_dir, f"lulc_{years[-1]}.tif")
+        with rasterio.open(tif) as s:
+            dminx, dminy, dmaxx, dmaxy = transform_bounds(s.crs, "EPSG:4326", *s.bounds)
+        d_deg2 = abs((dmaxx - dminx) * (dmaxy - dminy))
+        ratio = d_deg2 / b_deg2 if b_deg2 > 0 else 0
+    except Exception as e:
+        print(f"  ℹ️ 范围检查跳过({e})")
+        return None
+    if ratio <= 4:
+        if ratio < 0.25:
+            print(f"  ⚠️ 数据覆盖面积只有研究区边界的 {ratio:.2f} 倍,疑似只覆盖研究区一部分,"
+                  f"请确认数据完整性(建模范围 = 数据实际覆盖范围)")
+        print(f"  ✓ 范围检查通过(数据覆盖 ≈ 边界的 {ratio:.1f} 倍)")
+        return None
+    # 疑似未裁切 → 自动代裁剪全部期次
+    print(f"  ✂️ 数据覆盖为研究区边界的 {ratio:.0f} 倍,疑似未裁切——自动按边界裁剪全部期次")
+    try:
+        from download_lulc import clip_to_boundary
+        for y in years:
+            p = os.path.join(data_dir, f"lulc_{y}.tif")
+            tmp = p + ".crop.tif"
+            clip_to_boundary(p, gj, tmp)
+            os.replace(tmp, p)
+        with rasterio.open(os.path.join(data_dir, f"lulc_{years[-1]}.tif")) as s:
+            dminx, dminy, dmaxx, dmaxy = transform_bounds(s.crs, "EPSG:4326", *s.bounds)
+        d_deg2 = abs((dmaxx - dminx) * (dmaxy - dminy))
+        ratio2 = d_deg2 / b_deg2 if b_deg2 > 0 else 0
+        print(f"  ✓ 代裁剪完成:数据覆盖 {ratio:.0f} 倍 → {ratio2:.1f} 倍(边界外已置 0)")
+        return (f"【自动代裁剪】检测到用户数据未按研究区裁切(覆盖为边界 {ratio:.0f} 倍),"
+                f"已自动按研究区边界裁剪全部 {len(years)} 期(窗口裁剪+边界掩膜,边界外置 0,"
+                f"保持原投影与分辨率;裁剪后覆盖 ≈ 边界 {ratio2:.1f} 倍)。\n")
+    except Exception as e:
+        print(f"❌ 自动代裁剪失败: {e}")
+        print("   请先用 GIS 按研究区边界裁好数据再重跑(或确认边界文件正确)。")
+        sys.exit(1)
+
+
 def tick(label, t0, inputs="", outputs=""):
     import time
     dt = time.time() - t0
@@ -269,9 +514,30 @@ def main():
     parser.add_argument("--threads", type=int, default=4, help="下载线程数")
     parser.add_argument("--data-dir", default=None,
                         help="直接指定已有数据目录(复用缓存,跳过文件夹推导与重复下载)")
-    parser.add_argument("--lulc-source", default="clcd", choices=["clcd", "worldcover", "esri"],
+    parser.add_argument("--lulc-source", default="clcd",
+                        choices=["clcd", "worldcover", "esri", "cnlucc", "user", "stanford",
+                                 "globeland30", "glc_fcs30", "modis_igbp", "esa_cci",
+                                 "from_glc", "globcover", "modis_umd"],
                         help="土地利用数据源:clcd(30m 年度,需 NCDC 账号)/ worldcover"
-                             "(ESA 10m,仅 2020/2021,免注册)/ esri(Esri 10m,2017-2025 逐年,免注册,推荐)")
+                             "(ESA 10m,仅 2020/2021,免注册)/ esri(Esri 10m,2017-2025 逐年,免注册,推荐)/ "
+                             "cnlucc(RESDC 30m,13 期,需注册,人工下载后经 --lulc-dir 提供)/ "
+                             "user(用户自有多年份 tif,需 --lulc-dir + --lulc-legend-json)/ "
+                             "stanford(Stanford 派生数据,需代理,下载后同 user 方式提供)/ "
+                             "globeland30(30m,2000/2010/2020)/ glc_fcs30(30m,1985-2022)/ "
+                             "modis_igbp(500m,2001-2023)/ esa_cci(300m,1992-2020)/ "
+                             "from_glc(30m/10m,2015-2019)/ globcover(300m,2005-2009)/ "
+                             "modis_umd(500m,2001-2023)"
+                             "——以上均有内置图例,人工下载后经 --lulc-dir 提供")
+    parser.add_argument("--lulc-dir", default=None,
+                        help="用户提供土地利用数据的文件夹(仅 cnlucc/user/stanford 用;"
+                             "每个 tif 一档年份,文件名需含 4 位年份,如 lulc_2020.tif)")
+    parser.add_argument("--lulc-legend-json", default=None,
+                        help="用户自有数据的分类图例 JSON 或文件 {源编码: 语义名},"
+                             "如 '{\"1\":\"耕地\",\"2\":\"林地\"}'(仅 user/stanford 必填;"
+                             "cnlucc 已内置图例,可不给)")
+    parser.add_argument("--no-extent-check", action="store_true",
+                        help="跳过'疑似未裁切'范围检查(用户提供数据时默认检查;"
+                             "确认要全幅建模时加此参数)")
     parser.add_argument("--lulc-res", type=int, default=30, choices=[10, 30],
                         help="土地利用图分辨率:30m(默认)/ 10m(仅 WorldCover,"
                              "同区域像元数 ≈ 9 倍,建模慢数倍,适合小区域)")
@@ -323,6 +589,21 @@ def main():
         sys.exit(1)
     if args.lulc_res == 10:
         print("⚠️ 10m 分辨率:同区域像元数 ≈ 30m 的 9 倍,CARS 耗时数倍,仅建议小区域使用")
+    if args.lulc_source == "cnlucc" and any(y not in CNLUCC_YEARS for y in years):
+        print(f"❌ CNLUCC 只有 13 期: {sorted(CNLUCC_YEARS)};给了 {years}")
+        sys.exit(1)
+    if args.lulc_source in SOURCE_YEAR_RANGES:
+        lo, hi = SOURCE_YEAR_RANGES[args.lulc_source]
+        if any(not (lo <= y <= hi) for y in years):
+            print(f"❌ {args.lulc_source} 年份范围 {lo}-{hi};给了 {years}")
+            sys.exit(1)
+    if args.lulc_source in USER_PROVIDED_SOURCES and not args.lulc_dir:
+        print(f"❌ --lulc-source {args.lulc_source} 需要 --lulc-dir 指向用户提供的数据文件夹")
+        sys.exit(1)
+    if args.lulc_source in ("user", "stanford") and not args.lulc_legend_json:
+        print(f"❌ --lulc-source {args.lulc_source} 需要 --lulc-legend-json 分类图例:"
+              "{\"编码\":\"语义名\"} JSON 或文件路径,如 '{\"1\":\"耕地\",\"2\":\"林地\"}'")
+        sys.exit(1)
     # 数据源降级说明(① 下载时可能被赋值:CLCD 失败 → WorldCover 顶替),重分类说明读取后合并
     downgrade_note = ""
 
@@ -397,42 +678,59 @@ def main():
         out_root = args.output or DEFAULT_ROOT
         folder = resolve_folder(args.region)
         data_dir = os.path.join(out_root, folder)
-        # ① 土地利用下载。30m 渠道双数据源(用户 2026-11-10 定):
-        # 主 = CLCD;CLCD 失败且年份恰为 2020/2021 → 自动降级 WorldCover 10m 重采样 30m 顶替
-        print("=" * 60 + "\n【① 土地利用下载】\n" + "=" * 60)
-        t1 = time.time()
-        cmd = [PY, script("download_lulc.py"), "--region", args.region,
-               "--years", args.years, "--output", data_dir,
-               "--threads", str(args.threads),
-               # download_lulc 的渠道名是 ncdc-ftp/http/worldcover;"clcd" 只是本脚本对外的
-               # 选项名(2026-11-10 修:WorldCover 改造后默认 30m 主渠道被传成 --source clcd,
-               # argparse 直接报 invalid choice,导致默认路径完全不可用)
-               "--source", "ncdc-ftp" if args.lulc_source == "clcd" else args.lulc_source,
-               "--res", str(args.lulc_res)]
-        if args.lulc_source == "clcd":
-            r = subprocess.run(cmd, capture_output=True, text=True,
-                               encoding="utf-8", errors="replace", timeout=14400)
-            print((r.stdout or "")[-1500:] + (r.stderr or "")[-500:])
-            if r.returncode != 0:
-                if all(y in (2020, 2021) for y in years):
-                    print("⚠️ CLCD 下载失败;自动降级:ESA WorldCover 10m 重采样 30m 顶替")
-                    print("   (WorldCover 仅 2020/2021 两期,本次年份恰好可用)")
-                    args.lulc_source = "worldcover"  # 后续重分类/报告全按 worldcover 走
-                    downgrade_note = ("【数据源降级】CLCD 下载失败,自动改用 ESA WorldCover "
-                                      "10m 重采样 30m(该产品仅 2020/2021 两期)。\n")
-                    run([PY, script("download_lulc.py"), "--region", args.region,
-                         "--years", args.years, "--output", data_dir,
-                         "--threads", str(args.threads), "--source", "worldcover",
-                         "--res", "30"])
-                else:
-                    print("❌ CLCD 下载失败;WorldCover 只有 2020/2021 两期,"
-                          f"无法顶替所需年份 {years}")
-                    print("   请检查网络后重试,或用 --manual 手动提供数据")
-                    sys.exit(1)
+        if args.lulc_source in USER_PROVIDED_SOURCES:
+            # 用户提供数据(内置图例数据源/自有/Stanford 派生):跳过①自动下载,
+            # 从 --lulc-dir 按文件名年份导入,统一为 lulc_YYYY.tif 后走正常管线
+            print("=" * 60 + "\n【① 土地利用数据(用户提供)】\n" + "=" * 60)
+            os.makedirs(data_dir, exist_ok=True)
+            t1 = time.time()
+            _conv_notes = import_user_lulc(args.lulc_dir, years, data_dir)
+            if _conv_notes:
+                downgrade_note += "".join(_conv_notes)  # 转换记录进重分类说明,可追溯
+            _crop_note = check_extent_uncropped(data_dir, years, args.region,
+                                                os.path.join(SCRIPTS, "cache"),
+                                                args.no_extent_check)
+            if _crop_note:
+                downgrade_note += _crop_note  # 代裁剪记录进重分类说明/报告,可追溯
+            tick("① 土地利用数据(用户提供)", t1,
+                 inputs=args.lulc_dir, outputs=f"lulc_{{{','.join(str(y) for y in years)}}}.tif")
         else:
-            run(cmd)
-        tick("① 土地利用下载", t1, inputs=args.region,
-             outputs=f"lulc_{{{','.join(str(y) for y in years)}}}.tif")
+            # ① 土地利用下载。30m 渠道双数据源(用户 2026-11-10 定):
+            # 主 = CLCD;CLCD 失败且年份恰为 2020/2021 → 自动降级 WorldCover 10m 重采样 30m 顶替
+            print("=" * 60 + "\n【① 土地利用下载】\n" + "=" * 60)
+            t1 = time.time()
+            cmd = [PY, script("download_lulc.py"), "--region", args.region,
+                   "--years", args.years, "--output", data_dir,
+                   "--threads", str(args.threads),
+                   # download_lulc 的渠道名是 ncdc-ftp/http/worldcover;"clcd" 只是本脚本对外的
+                   # 选项名(2026-11-10 修:WorldCover 改造后默认 30m 主渠道被传成 --source clcd,
+                   # argparse 直接报 invalid choice,导致默认路径完全不可用)
+                   "--source", "ncdc-ftp" if args.lulc_source == "clcd" else args.lulc_source,
+                   "--res", str(args.lulc_res)]
+            if args.lulc_source == "clcd":
+                r = subprocess.run(cmd, capture_output=True, text=True,
+                                   encoding="utf-8", errors="replace", timeout=14400)
+                print((r.stdout or "")[-1500:] + (r.stderr or "")[-500:])
+                if r.returncode != 0:
+                    if all(y in (2020, 2021) for y in years):
+                        print("⚠️ CLCD 下载失败;自动降级:ESA WorldCover 10m 重采样 30m 顶替")
+                        print("   (WorldCover 仅 2020/2021 两期,本次年份恰好可用)")
+                        args.lulc_source = "worldcover"  # 后续重分类/报告全按 worldcover 走
+                        downgrade_note = ("【数据源降级】CLCD 下载失败,自动改用 ESA WorldCover "
+                                          "10m 重采样 30m(该产品仅 2020/2021 两期)。\n")
+                        run([PY, script("download_lulc.py"), "--region", args.region,
+                             "--years", args.years, "--output", data_dir,
+                             "--threads", str(args.threads), "--source", "worldcover",
+                             "--res", "30"])
+                    else:
+                        print("❌ CLCD 下载失败;WorldCover 只有 2020/2021 两期,"
+                              f"无法顶替所需年份 {years}")
+                        print("   请检查网络后重试,或用 --manual 手动提供数据")
+                        sys.exit(1)
+            else:
+                run(cmd)
+            tick("① 土地利用下载", t1, inputs=args.region,
+                 outputs=f"lulc_{{{','.join(str(y) for y in years)}}}.tif")
     global LOG_DIR
     LOG_DIR = os.path.join(data_dir, "logs")
     print(f"  数据目录: {data_dir}")
@@ -468,20 +766,23 @@ def main():
     # ② 驱动因子:自动下载默认 17 项 / 用户自供文件夹体检复制(--drivers-dir)
     t2 = time.time()
     ref_tif = os.path.join(data_dir, f"lulc_{years[0]}.tif")  # 网格检查也要用,--resume 时不能缺
+    # 指纹含文件修改时间+大小(2026-11-17,防 C2 坑):同一路径换了数据文件,
+    # 指纹会变 → ② 自动重跑,驱动因子按新网格重新对齐,不再拿旧因子配新图
+    _ref_fp = f"{ref_tif}|{os.path.getmtime(ref_tif):.0f}|{os.path.getsize(ref_tif)}"
     drivers_dir = os.path.join(data_dir, "drivers")
     if args.drivers_dir:
         print("=" * 60 + "\n【② 驱动因子(用户自供,体检+复制,不下载)】\n" + "=" * 60)
         run([PY, script("download_drivers.py"), "--region", args.region,
              "--ref", ref_tif, "--output", drivers_dir,
              "--use-existing", os.path.abspath(args.drivers_dir)])
-        mark_done("2", ref_tif)
+        mark_done("2", _ref_fp)
         tick("② 驱动因子(用户自供)", t2, inputs=args.drivers_dir,
              outputs=f"{len([x for x in os.listdir(drivers_dir) if x.startswith('df_')])} 个 df_*.tif")
-    elif not stage_done("2", ref_tif):
+    elif not stage_done("2", _ref_fp):
         print("=" * 60 + "\n【② 驱动因子下载(默认 17 项)】\n" + "=" * 60)
         run([PY, script("download_drivers.py"), "--region", args.region,
              "--ref", ref_tif, "--output", drivers_dir, "--osm", args.osm])
-        mark_done("2", ref_tif)
+        mark_done("2", _ref_fp)
         tick("② 驱动因子下载", t2, inputs=f"参考图 {os.path.basename(ref_tif)}",
              outputs=f"{len([x for x in os.listdir(drivers_dir) if x.startswith('df_')])} 个 df_*.tif")
     else:
@@ -491,6 +792,32 @@ def main():
     # ③ 重分类(自动映射:类别并集→连续编码;0 像元类自动成因分析)
     t3 = time.time()
     print("=" * 60 + "\n【③ 语义重分类】\n" + "=" * 60)
+    if args.lulc_source in USER_PROVIDED_SOURCES:
+        # 用户数据多期网格自动对齐(2026-11-17,防 C1 坑):下载渠道出厂即对齐,
+        # 用户数据未必——以末年网格为参考,最近邻重采样保持类编码为整数
+        import rasterio as _rio
+        _ref_path = os.path.join(data_dir, f"lulc_{years[-1]}.tif")
+        with _rio.open(_ref_path) as _s:
+            _ref_profile = {"driver": "GTiff", "crs": _s.crs, "transform": _s.transform,
+                            "width": _s.width, "height": _s.height, "count": 1}
+        _aligned = []
+        for _y in years:
+            _p = os.path.join(data_dir, f"lulc_{_y}.tif")
+            with _rio.open(_p) as _s:
+                if (_s.transform, _s.width, _s.height, _s.crs) == (
+                        _ref_profile["transform"], _ref_profile["width"],
+                        _ref_profile["height"], _ref_profile["crs"]):
+                    continue
+            _tmp = _p + ".align.tif"
+            align_categorical(_p, _ref_profile, _tmp)
+            os.replace(_tmp, _p)
+            _aligned.append(_y)
+        if _aligned:
+            print(f"  🔧 已把 {_aligned} 期自动对齐到 {years[-1]} 期网格"
+                  f"(最近邻重采样,保持类编码;已记录进重分类说明)")
+            downgrade_note += ("【网格自动对齐】用户提供数据中 "
+                               f"{'、'.join(str(y) for y in _aligned)} 期网格与 {years[-1]} 期不一致,"
+                               f"已自动最近邻重采样对齐(原文件已替换)。\n")
     if args.mapping:
         mapping_path = os.path.abspath(args.mapping)
     else:
@@ -504,6 +831,28 @@ def main():
                 vals = _np.unique(s.read(1))
             union |= {int(v) for v in vals if int(v) != 0}
         legend = BUILTIN_LEGENDS[args.lulc_source]
+        if args.lulc_source in ("user", "stanford"):
+            # 用户自有数据:图例从 --lulc-legend-json 取(JSON 字符串或文件路径)
+            if os.path.isfile(args.lulc_legend_json):
+                with open(args.lulc_legend_json, encoding="utf-8") as _f:
+                    legend = {int(k): v for k, v in json.load(_f).items()}
+            else:
+                legend = {int(k): v for k, v in json.loads(args.lulc_legend_json).items()}
+        # 值域-图例一致性检查(2026-11-17,防 B1 坑:报错数据源名 → 图例错配):
+        # 数据非零编码与图例键完全无交集 → 几乎肯定选错数据源,中止;
+        # 重合度 <50% → 醒目警告(编码体系可能部分换版,让用户确认)
+        _legend_keys = {k for k in legend if k != 0}
+        _data_nonzero = {c for c in union if c != 0}
+        if _data_nonzero and not (_data_nonzero & _legend_keys):
+            print(f"❌ 数据值域 {sorted(_data_nonzero)} 与所选数据源 {args.lulc_source} 的图例编码"
+                  f" {sorted(_legend_keys)} 完全无交集——很可能选错了数据源")
+            print("   请核对 --lulc-source(见 SKILL.md「内置图例库速查」表),"
+                  "或用 --lulc-source user + --lulc-legend-json 显式给图例。")
+            sys.exit(1)
+        if _data_nonzero and len(_data_nonzero & _legend_keys) / len(_data_nonzero) < 0.5:
+            print(f"  ⚠️ 数据值域与 {args.lulc_source} 图例重合度仅 "
+                  f"{len(_data_nonzero & _legend_keys)}/{len(_data_nonzero)}"
+                  f"({sorted(_data_nonzero)} vs {sorted(_legend_keys)})——请确认数据源没选错")
         # 按语义名去重后再编号:WorldCover 多个源编码共用同一语义
         # (70 冰雪→裸地、95 红树林→湿地、100 苔藓→草地)时,直接按编码枚举
         # 会产生同名键覆盖 → 目标编码不连续 → PLUS 报错(2026-11-10 加 WorldCover 时发现)
@@ -524,6 +873,13 @@ def main():
     rc_cmd = [PY, script("reclassify_lulc.py"),
               *[os.path.join(data_dir, f"lulc_{y}.tif") for y in years],
               "--source", args.lulc_source, "--mapping", mapping_path, "--output-dir", data_dir]
+    if args.lulc_source in ("user", "stanford"):
+        # 用户自有数据:图例表落盘后经 --legend-json 传给重分类(内置图例为空)
+        legend_json_path = os.path.join(data_dir, "legend_user.json")
+        with open(legend_json_path, "w", encoding="utf-8") as _f:
+            json.dump({str(k): v for k, v in legend.items()}, _f,
+                      ensure_ascii=False, indent=2)
+        rc_cmd += ["--legend-json", legend_json_path]
     rc_out = run(rc_cmd, timeout=1800)
     # "起始年 0 像元类":markov 会算 0/0=NaN 并污染全表(实测)。
     # 老师规则(2026-11-07):成因分析命中内置规则 → 自动归并并继续跑;未命中才中止要人工。
@@ -555,6 +911,22 @@ def main():
         print(f"\n⚠️ 极小类告警(末期 {years[-1]}):{_tiny}")
         print("   像元数 <1000(≈0.9 km²)的类难以生成独立斑块,精度指标也无统计意义")
         print("   建议:在映射里并入相邻类(不强制,由用户决定)")
+
+    # 语义名-同义族检查(2026-11-17,防 B5 坑):类名不在内置同义族里时,
+    # 默认矩阵的不可逆类锁定(森林/建设用地)与水域判断可能认不出这些类
+    try:
+        from run_pipeline import SYNONYM_GROUPS
+        _aliases = set()
+        for _grp in SYNONYM_GROUPS:
+            _aliases.update(_grp)
+        _unmatched = [n for n in mapping if n not in _aliases]
+        if _unmatched:
+            print(f"\n⚠️ 语义名同义族检查:{'、'.join(_unmatched)} 不在内置同义族里")
+            print("   后果:默认矩阵的不可逆类锁定(森林/建设用地)、水域判断可能认不出这些类")
+            print("   建议:把语义名改成常见叫法(耕地/林地/草地/水域/建设用地/裸地/湿地…),")
+            print("   或给 --matrix-restrictions 显式规则;若确认无需锁定可忽略本警告。")
+    except Exception:
+        pass
 
     tick("③ 语义重分类", t3, inputs=f"{len(years)} 期原始裁切图",
          outputs="mapping_auto.json + lulc_*_rc.tif + 重分类说明.md")
@@ -636,6 +1008,17 @@ def main():
     elif args.lulc_source == "esri":
         data_source = "esri"
         print("  数据源判定:Esri Land Cover(10m,2017-2025,已聚合 30m,免注册)")
+    elif args.lulc_source == "cnlucc":
+        data_source = "cnlucc"
+        print("  数据源判定:CNLUCC(中科院 RESDC,30m,13 期,人工下载经 --lulc-dir 提供)")
+    elif args.lulc_source in ("globeland30", "glc_fcs30", "modis_igbp", "esa_cci",
+                              "from_glc", "globcover", "modis_umd"):
+        data_source = args.lulc_source
+        print(f"  数据源判定:{args.lulc_source}(内置图例,人工下载经 --lulc-dir 提供)")
+    elif args.lulc_source in ("user", "stanford"):
+        data_source = args.lulc_source
+        print(f"  数据源判定:{'用户自有数据' if args.lulc_source == 'user' else 'Stanford 派生数据'}"
+              f"(文件夹提供,图例经 --lulc-legend-json 指定)")
     else:
         _clcd_ev = [os.path.join(data_dir, p) for p in
                     ("CLCD下载报告.md", "下载报告.md",
