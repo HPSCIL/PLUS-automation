@@ -588,6 +588,7 @@ def build_report(data_dir, out_name, proj, predict, region,
     L.append(f"# {region} {target} 年土地利用模拟 · 汇总报告\n")
     _ds = _data_source(proj, data_dir)
     _head_src = {"clcd": "CLCD 30m ", "worldcover": "ESA WorldCover 10m ",
+                 "esri": "Esri Sentinel-2 10m ",
                  "user": "用户提供的 "}
     head = (f"以 {_head_src.get(_ds, _head_src['user'])}{early_year}–{late_year} 多期土地利用数据为训练期,"
             f"PLUS 模型(扩张分析 + LEAS 随机森林 + "
