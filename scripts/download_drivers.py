@@ -206,7 +206,17 @@ def resolve_adcode(name):
 
 
 def resolve_province_pinyin(name):
-    """行政区划名 → 所在省的 pinyin(fr 镜像包名);不在中国/查不到返回 None"""
+    """行政区划名 → 所在省的 pinyin(fr 镜像包名);不在中国/查不到返回 None
+
+    2026-11-18 修:pcas 行政区划表不含港澳台,香港/澳门此前永远匹配不到
+    (WB 香港 2050 实测 OSM 因子下载失败)。改为先在省级映射表直接命中(含简称,
+    如"香港"→"香港特别行政区"),pcas 表只用于市级/区级归属。
+    """
+    if name in PROVINCE_PINYIN:
+        return PROVINCE_PINYIN[name]
+    for prov_full, py in PROVINCE_PINYIN.items():
+        if prov_full.startswith(name):
+            return py  # 简称命中:"香港"→香港特别行政区、"河北"→河北省
     data = _pcas_table()
     for prov in data:
         if prov.get("name") == name:
