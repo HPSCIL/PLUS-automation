@@ -607,7 +607,7 @@ def build_report(data_dir, out_name, proj, predict, region,
     head = (f"以 {_head_src.get(_ds, _head_src['user'])}{early_year}–{late_year} 多期土地利用数据为训练期,"
             f"PLUS 模型(扩张分析 + LEAS 随机森林 + "
             f"{'马尔可夫链' if proj.get('demand') == 'markov' else '线性回归'}需求 + CARS 斑块模拟)")
-    if seq:
+    if seq and len(seq) > 1:
         head += f"链式推演 {target} 年土地利用格局(中间期 {' / '.join(str(s['year']) for s in seq[:-1])})"
     else:
         head += f"推演 {target} 年土地利用格局"
