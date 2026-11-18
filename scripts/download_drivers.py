@@ -878,7 +878,12 @@ def osm_geoms(kind, bounds_wgs84, workdir=None, province=None, mode="auto"):
                 raise
             print("  Overpass 不可用,改用分省 pbf 本地提取")
     if not province or not workdir:
-        raise RuntimeError("OSM 渠道不可用且没有分省包兜底(研究区不在中国或没给省名)")
+        raise RuntimeError(
+            "OSM 渠道不可用且没有分省包兜底(研究区不在中国或没给省名)。"
+            "解决办法(按序尝试):① 若研究区在中国,确认区域名写全称(如'香港特别行政区');"
+            "② 若为国外地区,Overpass 在线渠道被墙是常见原因——开代理重跑,或换网络;"
+            "③ 用 --use-existing 自供距离因子(文件夹放 df_dist_main.tif 等 3 个,命名与"
+            "自动下载一致,网格不一致会自动对齐;无法自造时找别人要或换渠道")
     pbf = fetch_osm_pbf(province, workdir)
     return extract_pbf(pbf, bounds_wgs84)[kind]
 
@@ -1106,6 +1111,14 @@ def main():
     bounds_wgs84 = geojson_bounds(geojson)
     print(f"  边界范围(WGS84): 西 {bounds_wgs84[0]:.3f} 南 {bounds_wgs84[1]:.3f} "
           f"东 {bounds_wgs84[2]:.3f} 北 {bounds_wgs84[3]:.3f}")
+    # 中国大陆范围检测(2026-11-18 用户要求:国外地区提前给处理办法)
+    # 中国大陆 bbox 约 73~135°E / 3~54°N;边界中心明显在外 → 判定疑似国外地区
+    _cx, _cy = (bounds_wgs84[0] + bounds_wgs84[2]) / 2, (bounds_wgs84[1] + bounds_wgs84[3]) / 2
+    if not (73 <= _cx <= 135 and 3 <= _cy <= 54):
+        print("  🌍 检测到研究区在中国大陆范围外(疑似国外地区),两点提醒:")
+        print("     ① OSM 道路/水域距离因子的分省包兜底仅覆盖中国——Overpass 在线渠道"
+              "被墙时该因子会失败(见下方报错的解决办法)")
+        print("     ② 其余因子(地形/气候/人口/土壤)均为全球数据源,正常下载")
 
     # 所在省(OSM 兜底用:Overpass 全挂时下载该省 pbf 本地提取)
     province_pinyin = None

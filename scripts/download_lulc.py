@@ -454,7 +454,9 @@ def fetch_boundary_geojson(name, adcode="", cache_path=None):
     if not adcode:
         adcode = _full_adcode(resolve_adcode(name) or "")
     if not adcode:
-        print(f"❌ 找不到行政区划编码: {name}(试试写全称,如'武汉市')")
+        print(f"❌ 找不到行政区划编码: {name}(中国行政区请写全称,如'武汉市';"
+              f"**国外地区**:DataV 边界表仅覆盖中国,请用 --region 传 GeoJSON 边界文件路径,"
+              f"如 --region D:\\my_region.geojson)")
         return None
     url = BOUNDARY_URL.format(adcode=adcode)
     print(f"  获取边界: {url}")
